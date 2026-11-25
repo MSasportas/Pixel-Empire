@@ -21,8 +21,12 @@ const CONFIG = ctx.CONFIG;
 //   node tools/balance-test.js 3 '{"basePeak":0.2}'
 if (process.argv[3]) Object.assign(CONFIG, JSON.parse(process.argv[3]));
 
-// The robot waits a few seconds before each click, like a person.
-const CLICK_DELAY = Number(process.argv[2] || 3);
+// The robot plays like a person: it waits before clicking a waiting step
+// (CLICK_DELAY seconds), thinks before starting a new game (THINK seconds)
+// and goes shopping once a minute.
+const CLICK_DELAY = Number(process.argv[2] || 20);
+const THINK = 30;
+let think = 0;
 const state = G.newGameState("Robot Studio", 0, null);
 let wait = 0;
 let lastLevel = 1;
@@ -56,9 +60,14 @@ function shop() {
 
 const dt = 1;
 let t = 0;
-for (; t < 20 * 3600; t += dt) {
-  if (state.projects.length < G.maxProjects(state)) {
-    G.startNewGame(state, { name: "Game " + t, genre: bestGenre(), price: bestPrice(), features: state.features });
+// Optional third number: stop after this many hours (to test a week away mid-game).
+const STOP_HOURS = Number(process.argv[4] || 20);
+for (; t < STOP_HOURS * 3600; t += dt) {
+  think -= dt;
+  if (state.projects.length < G.maxProjects(state) && think <= 0) {
+    const sizes = CONFIG.sizes.filter(z => G.isUnlocked(state, z));
+    G.startNewGame(state, { name: "Game " + t, genre: bestGenre(), price: bestPrice(), features: state.features, size: sizes[sizes.length - 1].id });
+    think = THINK;
   }
   wait -= dt;
   if (!state.you.projectId && wait <= 0) {
@@ -66,7 +75,7 @@ for (; t < 20 * 3600; t += dt) {
     if (p) { G.youStartStep(state, p.id); wait = CLICK_DELAY; }
   }
   G.tick(state, dt, true);
-  if (t % 10 === 0) shop();
+  if (t % 60 === 0) shop();
   const lv = G.studioLevel(state);
   if (lv > lastLevel) {
     report.push("Level " + lv + " (" + CONFIG.levels[lv - 1].name + ") at " + (t / 3600).toFixed(2) + " h, money $" + Math.round(state.money) + ", games " + state.released.length + ", hires " + state.hires.length);

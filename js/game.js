@@ -76,6 +76,7 @@ function newGameState(studioName, legacy, me) {
     event: null,          // a convention invite, if there is one
     nextEventAt: 0,       // playSeconds when the next invite can arrive
     legacy: legacy || 0,  // how many studios you founded after winning
+    guide: 0,             // which step of the first-game guide you're on
     won: false,
   };
 }
@@ -139,8 +140,27 @@ function speedMultiplier(state) {
   return speed;
 }
 
-function stepDuration(state, stepIndex) {
-  return CONFIG.devTimeSeconds * CONFIG.steps[stepIndex].share / speedMultiplier(state);
+// How long the current step of a game takes for one person.
+// Bigger games take longer.
+function stepDuration(state, project) {
+  const size = byId(CONFIG.sizes, project.size || "small");
+  return CONFIG.devTimeSeconds * size.time * CONFIG.steps[project.step].share / speedMultiplier(state);
+}
+
+// How many people are working on a game right now.
+function workersOn(project) {
+  return (project.worker ? 1 : 0) + (project.helpers ? project.helpers.length : 0);
+}
+
+// Seconds left on the current step, with everyone who is working on it.
+function stepTimeLeft(state, project) {
+  const left = Math.max(0, stepDuration(state, project) - project.progress);
+  return left / Math.max(1, workersOn(project));
+}
+
+// Is this hire busy (working on or helping with a game)?
+function hireIsBusy(state, hireId) {
+  return state.projects.some(p => p.worker === hireId || (p.helpers && p.helpers.includes(hireId)));
 }
 
 // ----- How good will a game be? -------------------------------------
@@ -167,14 +187,15 @@ function repeatMultiplier(state, genreId) {
 function launchNumbers(state, project) {
   const genre = byId(CONFIG.genres, project.genre);
   const price = byId(CONFIG.prices, project.price);
-  let featReach = 1, featFans = 1, fade = 1;
+  const size = byId(CONFIG.sizes, project.size || "small");
+  let featReach = 1, featFans = 1, fade = size.fade;
   for (const fid of project.features) {
     const f = byId(CONFIG.features, fid);
     featReach *= f.reach; featFans *= f.fans; fade *= f.fade;
   }
   const power = gamePower(state, project.genre);
   const peak = CONFIG.basePeak * Math.pow(power, CONFIG.powerCurve)
-    * genre.pop * price.reach * featReach
+    * genre.pop * price.reach * featReach * size.reach
     * repeatMultiplier(state, project.genre) * fanBoost(state);
   let fanRate = CONFIG.baseFanRate * price.fans * genre.loyal * featFans;
   if (project.bugs) fanRate *= CONFIG.bugFanPenalty;
@@ -197,6 +218,49 @@ function playersBetween(game, a, b) {
 
 function playersPerSecondNow(game) {
   return game.peak / Math.pow(1 + game.age / game.fadeSeconds, CONFIG.fadePower);
+}
+
+// Sales stages: Hot, Steady, Fading, Old. Returns the stage now and
+// how many seconds until the next one (null if it's already Old).
+function salesStage(game) {
+  const share = playersPerSecondNow(game) / game.peak;
+  const stages = CONFIG.salesStages;
+  let i = stages.findIndex(st => share >= st.above);
+  if (i < 0) i = stages.length - 1;
+  const next = stages[i + 1];
+  let secondsToNext = null;
+  if (next) {
+    // The age when sales drop to the next stage's share of the peak.
+    const ageAtNext = game.fadeSeconds * (Math.pow(stages[i].above, -1 / CONFIG.fadePower) - 1);
+    secondsToNext = Math.max(0, ageAtNext - game.age);
+  }
+  return { name: stages[i].name, next: next ? next.name : null, secondsToNext: secondsToNext };
+}
+
+// ----- "What if" numbers for the Store ------------------------------
+
+// The kind of game you usually make: like your last one, or a simple
+// $5 Action game if you haven't made one yet.
+function usualGame(state) {
+  const last = state.released[0];
+  if (last) return { genre: last.genre, price: last.price, size: last.size || "small", features: last.features.slice(), name: last.name };
+  return { genre: "action", price: "p5", size: "small", features: state.features.slice(), name: null };
+}
+
+// Players and fans per second right after launch for a game like this.
+function previewLaunch(state, game) {
+  const n = launchNumbers(state, { genre: game.genre, price: game.price, size: game.size, features: game.features, bugs: false });
+  return { players: n.peak, fans: n.peak * n.fanRate, money: n.peak * n.moneyPerPlayer };
+}
+
+// How much a change (like training a skill) would help a game like this.
+// "change" changes the state, "undo" puts it back.
+function previewChange(state, game, change, undo) {
+  const before = previewLaunch(state, game);
+  change();
+  const after = previewLaunch(state, game);
+  undo();
+  return { players: after.players - before.players, fans: after.fans - before.fans, money: after.money - before.money };
 }
 
 // ----- What is unlocked? --------------------------------------------
@@ -248,6 +312,8 @@ function startNewGame(state, details) {
     genre: details.genre,
     price: details.price,
     features: details.features.slice(),
+    size: details.size || "small",
+    helpers: [],          // hires helping on this step
     step: 0,
     progress: 0,          // seconds of work done on this step
     worker: null,         // "you", a hire id, or null (waiting)
@@ -271,6 +337,7 @@ function youStartStep(state, projectId) {
 function skipTesting(state, projectId) {
   const p = state.projects.find(x => x.id === projectId);
   if (!p || CONFIG.steps[p.step].id !== "testing" || p.worker) return false;
+  p.helpers = [];
   p.bugs = true;
   p.step += 1;
   p.progress = 0;
@@ -346,8 +413,8 @@ function upgradeSupply(state, supplyId) {
 function applyMinigame(state, projectId, hits) {
   const p = state.projects.find(x => x.id === projectId);
   if (!p) return;
-  const maxBoost = CONFIG.minigameMaxSpeed * stepDuration(state, p.step);
-  const extra = Math.min(hits * CONFIG.minigameSpeedPerHit * stepDuration(state, p.step), maxBoost - p.boost);
+  const maxBoost = CONFIG.minigameMaxSpeed * stepDuration(state, p);
+  const extra = Math.min(hits * CONFIG.minigameSpeedPerHit * stepDuration(state, p), maxBoost - p.boost);
   if (extra <= 0) return;
   p.boost += extra;
   p.progress += extra;
@@ -376,6 +443,14 @@ function declineEvent(state) {
 function addMail(state, from, text) {
   state.mail.unshift({ id: makeId(), from: from, text: text, read: false });
   if (state.mail.length > 60) state.mail.length = 60;
+}
+
+function deleteMail(state, mailId) {
+  state.mail = state.mail.filter(m => m.id !== mailId);
+}
+
+function deleteReadMail(state) {
+  state.mail = state.mail.filter(m => !m.read);
 }
 
 function giveTrophy(state, trophyId) {
@@ -428,19 +503,26 @@ function tick(state, seconds, online) {
   const share = online ? 1 : CONFIG.awayShare;
   if (online) state.playSeconds += seconds;
 
-  // 1. Hires pick up waiting work in their own section.
+  // 1. Free hires pick up waiting work in their own section. If nothing
+  //    is waiting, they help on the game with the most work left there.
   for (const h of state.hires) {
-    const busy = state.projects.some(p => p.worker === h.id);
-    if (busy) continue;
-    const waiting = state.projects.find(p => !p.worker && CONFIG.steps[p.step].id === h.section);
-    if (waiting) waiting.worker = h.id;
+    if (hireIsBusy(state, h.id)) continue;
+    const here = state.projects.filter(p => CONFIG.steps[p.step].id === h.section);
+    const waiting = here.find(p => !p.worker);
+    if (waiting) { waiting.worker = h.id; continue; }
+    let best = null;
+    for (const p of here) {
+      if (!p.helpers) p.helpers = [];
+      if (!best || stepTimeLeft(state, p) > stepTimeLeft(state, best)) best = p;
+    }
+    if (best && stepTimeLeft(state, best) > 5) best.helpers.push(h.id);
   }
 
-  // 2. Work on games in progress.
+  // 2. Work on games in progress. Every person working adds speed.
   for (const p of state.projects.slice()) {
     if (!p.worker) continue;
-    p.progress += seconds;
-    if (p.progress >= stepDuration(state, p.step)) finishStep(state, p);
+    p.progress += seconds * workersOn(p);
+    if (p.progress >= stepDuration(state, p)) finishStep(state, p);
   }
 
   // 3. Released games bring in players, fans and money.
@@ -476,6 +558,7 @@ function tick(state, seconds, online) {
 function finishStep(state, p) {
   if (p.worker === "you") state.you.projectId = null;
   p.worker = null;
+  p.helpers = [];
   p.progress = 0;
   p.boost = 0;
   p.boostUsed = false;
@@ -491,7 +574,7 @@ function releaseGame(state, p) {
   const repeats = state.lastGenre === p.genre ? state.genreStreak : 0;
   const numbers = launchNumbers(state, p);
   state.released.unshift({
-    id: p.id, name: p.name, genre: p.genre, price: p.price, features: p.features,
+    id: p.id, name: p.name, genre: p.genre, price: p.price, features: p.features, size: p.size || "small",
     bugs: p.bugs, peak: numbers.peak, fanRate: numbers.fanRate,
     moneyPerPlayer: numbers.moneyPerPlayer, fadeSeconds: numbers.fadeSeconds,
     age: 0, players: 0, launchedAt: state.playSeconds,

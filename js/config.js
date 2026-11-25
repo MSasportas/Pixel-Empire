@@ -31,6 +31,20 @@ const CONFIG = {
     { id: "launch",     name: "Launch",         share: 0.05, verb: "Launch it!",           job: "Producer",       minigame: null },
   ],
 
+  // Game sizes. Bigger games take longer to make ("time" times longer),
+  // but reach more players and keep selling for longer ("fade").
+  // Hires in a section help on big games, so a full team makes them faster.
+  sizes: [
+    { id: "small",  label: "Small",  level: 1, time: 1,  reach: 1,  fade: 1,
+      hint: "Small: quick to make. A good way to try a new idea." },
+    { id: "medium", label: "Medium", level: 1, time: 3,  reach: 2.6, fade: 1.2,
+      hint: "Medium: takes 3 times as long, but reaches more players and sells for longer." },
+    { id: "big",    label: "Big",    level: 3, time: 10, reach: 7, fade: 1.4,
+      hint: "Big: takes a long time. Hires in each section help to finish it faster." },
+    { id: "huge",   label: "Huge",   level: 4, time: 30, reach: 17, fade: 1.8,
+      hint: "Huge: a giant game that takes an hour or more. You need a full team. It reaches lots of players and sells for a long time." },
+  ],
+
   // Mini-games last this many seconds. Each hit makes the step faster.
   minigameSeconds: 15,
   minigameSpeedPerHit: 0.04,   // each hit finishes 4% of the step
@@ -56,8 +70,8 @@ const CONFIG = {
     { id: "engines",     name: "Engines",     color: "#a06cff" },
   ],
   // Money cost to train a skill from level L to L+1 = base * growth^(L-1)
-  trainBaseCost: 400,
-  trainCostGrowth: 2.3,
+  trainBaseCost: 1500,
+  trainCostGrowth: 2.4,
   // Skill points (XP) from releasing a game.
   xpMainSkill: 60,   // the genre's main skill
   xpOtherSkill: 15,  // every other skill
@@ -127,21 +141,29 @@ const CONFIG = {
   powerCurve: 1.1,
   // fanBoost = 1 + (fans ^ fanBoostCurve) / fanBoostDivisor
   fanBoostCurve: 0.5,
-  fanBoostDivisor: 700,
+  fanBoostDivisor: 3000,
   // Share of players who become fans (before price, genre, features).
-  baseFanRate: 0.03,
+  baseFanRate: 0.1,
   // Skipping testing: this share of fans compared to a tested game.
   bugFanPenalty: 0.5,
   // Sales fade: players per second = peak / (1 + age / fadeSeconds) ^ fadePower
   // A bigger fadeSeconds means games keep selling for longer.
   fadeSeconds: 600,
   fadePower: 1.5,
+  // Names for how well a game is selling compared to launch day.
+  // "above" is the share of launch-day sales.
+  salesStages: [
+    { name: "Hot",    above: 0.6 },
+    { name: "Steady", above: 0.3 },
+    { name: "Fading", above: 0.12 },
+    { name: "Old",    above: 0 },
+  ],
 
   // ----- Desks, hires and office supplies ---------------------------
   deskBaseCost: 4000,
   deskCostGrowth: 2.5,    // each extra desk in the same section costs more
   hireBaseCost: 6000,
-  hireCostGrowth: 2,   // each hire costs more than the last
+  hireCostGrowth: 2.3,   // each hire costs more than the last
 
   // Each upgrade level makes everyone work faster by "speed" (0.1 = 10%).
   supplies: [

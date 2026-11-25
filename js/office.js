@@ -190,9 +190,11 @@ const Office = {
   // bottom for the HUD boxes so they never cover the office.
   fit() {
     const hudOn = !document.getElementById("hud").classList.contains("hidden");
-    const height = id => document.querySelector(id).offsetHeight;
-    const top = hudOn ? Math.max(height(".hud-box.tl"), height(".hud-box.tr")) + 14 : 0;
-    const bottom = hudOn ? Math.max(height(".hud-box.bl"), height(".hud-box.br")) + 14 : 0;
+    const box = sel => document.querySelector(sel).getBoundingClientRect();
+    const top = hudOn ? Math.max(box(".hud-box.tl").bottom, box(".hud-box.tr").bottom) + 6 : 0;
+    const bottom = hudOn ? window.innerHeight - Math.min(box(".hud-box.bl").top, box(".hud-box.br").top) + 6 : 0;
+    // On narrow screens, the guide and invites sit just under the top boxes.
+    document.getElementById("topcenter").style.top = (window.innerWidth < 760 && hudOn ? top : 8) + "px";
     const wrap = document.getElementById("office-wrap");
     wrap.style.top = top + "px";
     wrap.style.bottom = bottom + "px";
@@ -245,7 +247,7 @@ const Office = {
         let w = this.people[h.id];
         if (!w) w = this.people[h.id] = this.makeWalker(this.deskSpot(step.id, i), 35);
         w.look = h.look;
-        w.working = state.projects.some(p => p.worker === h.id);
+        w.working = hireIsBusy(state, h.id);
         if (w.working) w.target = this.deskSpot(step.id, i);
         else if (w.restUntil < this.time && this.atTarget(w)) {
           w.target = Math.random() < 0.4 ? this.deskSpot(step.id, i) : this.randomSpotIn(step.id);
@@ -347,7 +349,7 @@ const Office = {
         const spot = DESK_SPOTS[d];
         if (d < state.desks[step.id]) {
           const hire = hiresIn(state, step.id)[d];
-          const on = hire && state.projects.some(p => p.worker === hire.id);
+          const on = hire && hireIsBusy(state, hire.id);
           drawList.push({ y: spot.y + 1, fn: () => drawDesk(ctx, x0 + spot.x, spot.y, DESK_W, DESK_H, on, t + d) });
         } else {
           drawList.push({ y: spot.y - 100, fn: () => drawEmptyDeskSpot(ctx, x0 + spot.x, spot.y) });
@@ -375,13 +377,16 @@ const Office = {
     // Progress bars above people who are working
     for (const p of state.projects) {
       if (!p.worker) continue;
-      const w = this.people[p.worker];
-      if (!w) continue;
-      const done = Math.min(1, p.progress / stepDuration(state, p.step));
-      const bx = Math.round(w.x) - 9, by = Math.round(w.y) - 33;
-      ctx.fillStyle = NEON.dark; ctx.fillRect(bx - 1, by - 1, 20, 5);
-      ctx.fillStyle = "#3a2c5c"; ctx.fillRect(bx, by, 18, 3);
-      ctx.fillStyle = NEON.cyan; ctx.fillRect(bx, by, Math.round(18 * done), 3);
+      const done = Math.min(1, p.progress / stepDuration(state, p));
+      for (const id of [p.worker].concat(p.helpers || [])) {
+        const w = this.people[id];
+        if (!w) continue;
+        const bx = Math.round(w.x) - 9, by = Math.round(w.y) - 33;
+        ctx.fillStyle = NEON.dark; ctx.fillRect(bx - 1, by - 1, 20, 5);
+        ctx.fillStyle = "#3a2c5c"; ctx.fillRect(bx, by, 18, 3);
+        ctx.fillStyle = id === p.worker ? NEON.cyan : NEON.pink;
+        ctx.fillRect(bx, by, Math.round(18 * done), 3);
+      }
     }
 
     // A bouncing "!" where a game is waiting for you
