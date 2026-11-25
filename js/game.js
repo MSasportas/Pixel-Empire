@@ -627,7 +627,7 @@ function acceptEvent(state, gameId) {
     players: extra, money: extra * game.moneyPerPlayer, fans: extra * game.fanRate, wasAge: oldAge,
   };
   addMail(state, state.event.name, "Everyone loved playing " + game.name + " at " + state.event.name + "! It's selling like it just came out: " +
-    Math.round(after.rate).toLocaleString("en-US") + " players a second instead of " + Math.round(before.rate).toLocaleString("en-US") +
+    Math.round(after.rate * 60).toLocaleString("en-US") + " players a minute instead of " + Math.round(before.rate * 60).toLocaleString("en-US") +
     ". Over the next year that's about " + Math.round(extra).toLocaleString("en-US") + " extra players, $" + Math.round(result.money).toLocaleString("en-US") +
     " and " + Math.round(result.fans).toLocaleString("en-US") + " fans.");
   state.event = null;
