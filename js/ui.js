@@ -18,6 +18,7 @@ function $(id) { return document.getElementById(id); }
 
 // Turns 1234567 into "1.23M", and 12345 into "12,345".
 function fmt(n) {
+  if (n > 0 && n < 0.1) return n.toFixed(2);
   if (n > 0 && n < 10 && n % 1 !== 0) return n.toFixed(1);
   n = Math.floor(n);
   if (n >= 1e9) return (n / 1e9).toFixed(2) + "B";
@@ -25,6 +26,30 @@ function fmt(n) {
   return n.toLocaleString("en-US");
 }
 function money(n) { return "$" + fmt(n); }
+
+// A clock-style time, like "1h 05m" or "4m 30s".
+function fmtClock(seconds) {
+  seconds = Math.max(0, Math.floor(seconds));
+  const h = Math.floor(seconds / 3600), m = Math.floor(seconds / 60) % 60, s = seconds % 60;
+  if (h > 0) return h + "h " + String(m).padStart(2, "0") + "m";
+  if (m > 0) return m + "m " + String(s).padStart(2, "0") + "s";
+  return s + "s";
+}
+
+// Money per second, with cents when it's small.
+function moneyRate(n) {
+  if (n > 0 && n < 10) return "$" + n.toFixed(2) + "/s";
+  return money(n) + "/s";
+}
+
+// A small "+1.2 players/s" style line for the Store.
+function gainLine(gain, what) {
+  const parts = [];
+  if (what.includes("players")) parts.push('<span class="gain cyan">+' + fmt(gain.players) + " players/s</span>");
+  if (what.includes("fans")) parts.push('<span class="gain yellow">+' + fmt(gain.fans) + " fans/s</span>");
+  if (what.includes("money")) parts.push('<span class="gain pink">+' + moneyRate(gain.money) + "</span>");
+  return parts.join(" ");
+}
 
 function fmtTime(seconds) {
   if (seconds < 90) return Math.round(seconds) + " seconds";
@@ -63,6 +88,9 @@ const UI = {
   form: null,           // the "Make a game" form while it's open
   cards: [],            // pop-up cards waiting to be shown
   renaming: null,       // the hire being renamed
+  panelStack: [],       // panels waiting underneath (like Make a game under the Store)
+  lastHint: null,       // the last thing you pointed at or tapped
+  newMail: {},          // mail that was new when you opened the Mailbox
   look: null,           // the character being designed
   rates: { money: 0, players: 0, fans: 0 },
   demo: null,
@@ -70,6 +98,8 @@ const UI = {
   init() {
     document.addEventListener("click", e => {
       Sound.start();
+      const hintEl = e.target.closest("[data-hint]");
+      if (hintEl) { this.lastHint = hintEl.dataset.hint; if ($("hint")) $("hint").innerHTML = this.lastHint; }
       const el = e.target.closest("[data-act]");
       if (el && !el.disabled) { this.act(el.dataset.act, el.dataset, el); }
     });
@@ -77,7 +107,7 @@ const UI = {
     document.addEventListener("mouseover", e => {
       const el = e.target.closest("[data-hint]");
       const box = $("hint");
-      if (el && box) box.innerHTML = el.dataset.hint;
+      if (el && box) { box.innerHTML = el.dataset.hint; this.lastHint = el.dataset.hint; }
     });
     document.addEventListener("keydown", e => {
       if (e.target.id === "rename-input" && e.key === "Enter") this.finishRename();
@@ -219,6 +249,8 @@ const UI = {
     $("hud-players").textContent = fmt(state.playersTotal);
     $("hud-players-rate").textContent = "+" + fmt(playerRate) + "/s";
     $("hud-fans").textContent = fmt(state.fans);
+    $("hud-time").textContent = fmtClock(state.playSeconds);
+    $("btn-games").textContent = "Games (" + state.released.length + ")";
     $("hud-fans-rate").textContent = "+" + fmt(fanRate) + "/s";
     $("hud-level").textContent = lv.current.name;
     if (lv.next) {
@@ -234,6 +266,7 @@ const UI = {
     $("mail-badge").textContent = unread;
     $("mail-badge").classList.toggle("hidden", unread === 0);
     $("btn-make").classList.toggle("glow", state.projects.length === 0);
+    this.updateGuide();
     // Convention invite
     const toast = $("toast");
     if (state.event) {
@@ -246,6 +279,38 @@ const UI = {
       toast.classList.add("hidden");
       toast.dataset.html = "";
     }
+  },
+
+  // ----- The guided first game ---------------------------------------
+  // A short "do this, then this" list for your very first game.
+  // You learn by doing it, and it goes away when you're done.
+
+  guideSteps: [
+    { text: "Click <b>Make a game</b>, pick a genre, and start it.",
+      done: s => s.projects.length > 0 || s.released.length > 0 },
+    { text: "Click the <b>Concept</b> section with the yellow <b>!</b> and start the concept.",
+      done: s => s.released.length > 0 || s.projects.some(p => p.step > 0 || p.worker) },
+    { text: "Every step has its own section. Click the next <b>!</b> to keep going. Try <b>Speed up!</b> for a mini-game.",
+      done: s => s.released.length > 0 || s.projects.some(p => p.step >= 3) },
+    { text: "<b>Testing</b> finds bugs. Test your game, or skip it and see what fans say.",
+      done: s => s.released.length > 0 || s.projects.some(p => p.step >= 4) },
+    { text: "Click <b>Launch</b> and release your game to the world!",
+      done: s => s.released.length > 0 },
+    { text: "Your game is selling! Open the <b>Store</b> to spend your money.",
+      done: s => s.guide > 5 },
+    { text: "Open your <b>Mail</b> to see what fans think. Then make your next game!",
+      done: s => s.guide > 6 },
+  ],
+
+  updateGuide() {
+    if (state.guide === undefined) state.guide = state.released.length ? 99 : 0;
+    while (state.guide < this.guideSteps.length && this.guideSteps[state.guide].done(state)) state.guide++;
+    const box = $("guide");
+    if (state.guide >= this.guideSteps.length) { box.classList.add("hidden"); return; }
+    const html = '<span class="guide-count">First game ' + (state.guide + 1) + "/" + this.guideSteps.length + "</span> " +
+      this.guideSteps[state.guide].text + ' <button class="link" data-act="skip-guide">Hide</button>';
+    if (box.dataset.html !== html) { box.innerHTML = html; box.dataset.html = html; }
+    box.classList.remove("hidden");
   },
 
   // Called by main.js after every game tick, to notice big moments.
@@ -312,16 +377,34 @@ const UI = {
 
   openPanel(p) {
     if (!state) return;
+    // The Store opened from "Make a game" sits on top of it, so your game
+    // isn't lost. Closing the Store takes you back.
+    if (this.panel && this.panel.name === "make" && p.name === "store") {
+      this.form.name = $("game-name") ? $("game-name").value : this.form.name;
+      this.panelStack.push(this.panel);
+    } else {
+      this.panelStack = [];
+    }
     this.panel = p;
-    if (p.name === "make") this.newForm();
-    if (p.name === "mail") state.mail.forEach(m => { m.read = true; });
+    if (p.name === "make" && !this.form) this.newForm();
+    if (p.name === "store" && state.guide === 5) state.guide = 6;
+    if (p.name === "mail") {
+      if (state.guide === 6) state.guide = 7;
+      this.newMail = {};
+      state.mail.forEach(m => { if (!m.read) this.newMail[m.id] = true; m.read = true; });
+    }
     this.renderPanel();
     $("panel").classList.remove("hidden");
   },
 
   closePanel() {
-    this.panel = null;
     this.renaming = null;
+    if (this.panelStack.length) {
+      this.panel = this.panelStack.pop();
+      this.renderPanel();
+      return;
+    }
+    this.panel = null;
     $("panel").classList.add("hidden");
     $("panel").innerHTML = "";
   },
@@ -343,17 +426,20 @@ const UI = {
       '<div class="panel-head"><h2>' + body.title + '</h2><button class="btn small ghost" data-act="close">X</button></div>' +
       '<div class="panel-body" id="panel-body">' + body.html + '</div></div>';
     $("panel-body").scrollTop = scroll;
+    if ($("hint") && this.lastHint) $("hint").innerHTML = this.lastHint;
     if (this.renaming && $("rename-input")) $("rename-input").focus();
   },
 
   // ----- Make a game ------------------------------------------------
 
   newForm() {
+    this.lastHint = null;
     this.form = {
       name: pickRandom(CONFIG.gameNameIdeas),
       genre: null,
       price: "p5",
       features: state.features.slice(),
+      size: "small",
     };
   },
 
@@ -386,6 +472,18 @@ const UI = {
     }
     html += "</div>";
 
+    html += '<label>Size</label><div class="choices">';
+    for (const z of CONFIG.sizes) {
+      const minutes = CONFIG.devTimeSeconds * z.time / speedMultiplier(state) / 60;
+      const label = z.label + ' <span class="tag muted">' + (minutes < 1.5 ? Math.round(minutes * 60) + "s" : Math.round(minutes) + " min") + "</span>";
+      if (isUnlocked(state, z)) {
+        html += '<button class="choice' + (f.size === z.id ? " on" : "") + '" data-act="form-size" data-id="' + z.id + '" data-hint="' + esc(z.hint + " Takes about " + Math.round(minutes) + " minutes for one person.") + '">' + label + "</button>";
+      } else {
+        html += '<button class="choice locked" disabled data-hint="' + esc(z.hint + " Unlocks at " + CONFIG.levels[z.level - 1].name + ".") + '">🔒 ' + z.label + "</button>";
+      }
+    }
+    html += "</div>";
+
     html += '<label>Features</label><div class="choices">';
     for (const ft of CONFIG.features) {
       const owned = state.features.includes(ft.id);
@@ -405,7 +503,21 @@ const UI = {
       html += '<p class="note">You are already making ' + state.projects.length + (state.projects.length === 1 ? " game" : " games") + '. Hire people to make more games at the same time.</p>';
     }
     html += '<div class="row"><button class="btn big" data-act="form-start"' + (full || !f.genre ? " disabled" : "") + '>' + (f.genre ? "Start making it!" : "Pick a genre first") + "</button></div>";
+    html += this.earningList(5);
     return { title: "Make a game", html: html };
+  },
+
+  // A short list of your best-selling games right now, with money per second.
+  earningList(howMany) {
+    if (!state.released.length) return "";
+    const games = state.released.slice().sort((a, b) => playersPerSecondNow(b) * b.moneyPerPlayer - playersPerSecondNow(a) * a.moneyPerPlayer);
+    let total = 0;
+    for (const g of state.released) total += playersPerSecondNow(g) * g.moneyPerPlayer;
+    let html = "<h3>Your games right now · " + moneyRate(total) + "</h3>";
+    for (const g of games.slice(0, howMany)) {
+      html += '<div class="mini-row"><span>' + esc(g.name) + '</span><span class="pink">' + moneyRate(playersPerSecondNow(g) * g.moneyPerPlayer) + "</span></div>";
+    }
+    return html;
   },
 
   // ----- A section of the office ------------------------------------
@@ -419,11 +531,13 @@ const UI = {
     for (const g of here) {
       const genre = byId(CONFIG.genres, g.genre);
       html += '<div class="item"><div class="item-main"><b>' + esc(g.name) + '</b> <span class="muted">' + genre.name + "</span>";
+      const sizeLabel = byId(CONFIG.sizes, g.size || "small").label;
+      html += ' <span class="muted">· ' + sizeLabel + "</span>";
       if (g.worker) {
-        const who = g.worker === "you" ? "You" : esc((state.hires.find(h => h.id === g.worker) || {}).name || "Someone");
-        const done = g.progress / stepDuration(state, g.step);
-        const left = Math.max(0, stepDuration(state, g.step) - g.progress);
-        html += '<div class="muted">' + who + " " + (g.worker === "you" ? "are" : "is") + " working on it · " + Math.ceil(left) + "s left</div>" + bar(done);
+        const nameOf = id => id === "you" ? "You" : esc((state.hires.find(h => h.id === id) || {}).name || "Someone");
+        const people = [g.worker].concat(g.helpers || []).map(nameOf);
+        const done = g.progress / stepDuration(state, g);
+        html += '<div class="muted">' + people.join(", ") + " · " + fmtClock(stepTimeLeft(state, g)) + " left</div>" + bar(done);
         html += "</div>";
         if (g.worker === "you" && step.minigame && !g.boostUsed) {
           html += '<button class="btn small" data-act="minigame" data-id="' + g.id + '">Speed up!</button>';
@@ -471,13 +585,18 @@ const UI = {
     let html = '<div class="tabs">' + tabs.map(t =>
       '<button class="tab' + (tab === t[0] ? " on" : "") + '" data-act="store-tab" data-tab="' + t[0] + '">' + t[1] + "</button>").join("") + "</div>";
 
+    const usual = usualGame(state);
+    const usualName = usual.name ? esc(usual.name) : "a $5 Action game";
     if (tab === "skills") {
-      html += '<p class="muted">You get better with every game you make. Training makes you better faster.</p>';
+      html += '<p class="muted">You get better with every game you make. Training makes you better faster. Numbers show what the next level adds at launch to a game like ' + usualName + ".</p>";
       for (const s of CONFIG.skills) {
         const sk = state.skills[s.id];
         const extra = s.id === "engines" ? " (+" + bestEngine(state).power + " from " + bestEngine(state).name + ")" : "";
+        const gain = previewChange(state, usual, () => { sk.level += 1; }, () => { sk.level -= 1; });
+        const fact = s.id === "engines" ? '<div class="fact">Fun fact: ' + bestEngine(state).fact + "</div>" : "";
         html += '<div class="item"><div class="item-main"><b style="color:' + s.color + '">' + s.name + "</b> level " + sk.level + extra +
-          bar(sk.xp / xpNeeded(sk.level), s.color) + "</div>" + costButton("train", 'data-id="' + s.id + '"', trainCost(state, s.id), "Train") + "</div>";
+          bar(sk.xp / xpNeeded(sk.level), s.color) + '<div class="gains">Next level: ' + gainLine(gain, ["players", "fans"]) + "</div>" + fact + "</div>" +
+          costButton("train", 'data-id="' + s.id + '"', trainCost(state, s.id), "Train") + "</div>";
       }
     }
     if (tab === "engines") {
@@ -486,16 +605,27 @@ const UI = {
         if (state.engines.includes(e.id)) right = '<span class="owned">Learned</span>';
         else if (!isUnlocked(state, e)) right = '<span class="muted">🔒 ' + CONFIG.levels[e.level - 1].name + "</span>";
         else right = costButton("learn", 'data-id="' + e.id + '"', e.cost, "Learn");
-        html += '<div class="item"><div class="item-main"><b>' + e.name + "</b> <span class=\"muted\">+" + e.power + " Engines</span><div>Good for: " + e.good + '</div><div class="muted">Fun fact: ' + e.fact + "</div></div>" + right + "</div>";
+        let gainHtml = "";
+        if (!state.engines.includes(e.id) && e.power > bestEngine(state).power) {
+          const gain = previewChange(state, usual, () => state.engines.push(e.id), () => state.engines.pop());
+          gainHtml = '<div class="gains">Adds ' + gainLine(gain, ["players", "fans"]) + "</div>";
+        }
+        html += '<div class="item"><div class="item-main"><b>' + e.name + "</b> <span class=\"muted\">+" + e.power + " Engines</span><div>Good for: " + e.good + "</div>" + gainHtml + '<div class="fact">Fun fact: ' + e.fact + "</div></div>" + right + "</div>";
       }
     }
     if (tab === "features") {
+      html += '<p class="muted">Numbers show what each feature adds at launch to a game like ' + usualName + ".</p>";
       for (const f of CONFIG.features) {
         let right;
         if (state.features.includes(f.id)) right = '<span class="owned">Owned</span>';
         else if (!isUnlocked(state, f)) right = '<span class="muted">🔒 ' + CONFIG.levels[f.level - 1].name + "</span>";
         else right = costButton("buy-feature", 'data-id="' + f.id + '"', f.cost, "Buy");
-        html += '<div class="item"><div class="item-main"><b>' + f.name + "</b><div>" + f.hint + "</div></div>" + right + "</div>";
+        const without = Object.assign({}, usual, { features: usual.features.filter(x => x !== f.id) });
+        const withIt = Object.assign({}, without, { features: without.features.concat([f.id]) });
+        const a = previewLaunch(state, without), b = previewLaunch(state, withIt);
+        const gain = { players: b.players - a.players, fans: b.fans - a.fans, money: b.money - a.money };
+        const what = f.fade > 1 ? '<div class="gains">Sales fade ' + f.fade + " times slower</div>" : '<div class="gains">Adds ' + gainLine(gain, gain.players > 0.0001 ? ["players", "fans"] : ["fans"]) + "</div>";
+        html += '<div class="item"><div class="item-main"><b>' + f.name + "</b><div>" + f.hint + "</div>" + what + "</div>" + right + "</div>";
       }
     }
     if (tab === "desks") {
@@ -517,7 +647,12 @@ const UI = {
         const cost = supplyCost(state, s.id);
         const right = cost === undefined ? '<span class="owned">Best one!</span>'
           : costButton("supply", 'data-id="' + s.id + '"', cost, "Upgrade");
-        const next = cost === undefined ? "" : ' → <span class="muted">' + s.levels[lv + 1] + " (+" + Math.round(s.speed * 100) + "% speed)</span>";
+        let next = "";
+        if (cost !== undefined) {
+          const now = CONFIG.devTimeSeconds / speedMultiplier(state);
+          const after = CONFIG.devTimeSeconds / (speedMultiplier(state) + s.speed * (1 + CONFIG.legacySpeedBonus * state.legacy));
+          next = ' → <span class="muted">' + s.levels[lv + 1] + '</span><div class="gains"><span class="gain cyan">Small games ' + Math.round(now - after) + "s faster</span></div>";
+        }
         html += '<div class="item"><div class="item-main"><b>' + s.name + "</b>: " + s.levels[lv] + next + "</div>" + right + "</div>";
       }
     }
@@ -529,19 +664,28 @@ const UI = {
   panel_games() {
     let html = "";
     if (state.projects.length) {
-      html += "<h3>Being made</h3>";
+      html += "<h3>Being made (" + state.projects.length + ")</h3>";
       for (const p of state.projects) {
-        html += '<div class="item"><div class="item-main"><b>' + esc(p.name) + '</b> <span class="muted">' + CONFIG.steps[p.step].name + (p.worker ? "" : " (waiting)") + "</span></div></div>";
+        const size = byId(CONFIG.sizes, p.size || "small").label;
+        const status = p.worker ? fmtClock(stepTimeLeft(state, p)) + " left on this step, " + workersOn(p) + (workersOn(p) === 1 ? " person" : " people") : "waiting for someone";
+        html += '<div class="item"><div class="item-main"><b>' + esc(p.name) + '</b> <span class="muted">' + size + " · " + CONFIG.steps[p.step].name + '</span><div class="muted">' + status + "</div></div></div>";
       }
     }
-    html += "<h3>Released</h3>";
+    let total = 0;
+    for (const g of state.released) total += playersPerSecondNow(g) * g.moneyPerPlayer;
+    html += "<h3>Released (" + state.released.length + ") · " + moneyRate(total) + "</h3>";
     if (!state.released.length) html += '<p class="muted">No games out yet.</p>';
     for (const g of state.released.slice(0, 40)) {
       const genre = byId(CONFIG.genres, g.genre), price = byId(CONFIG.prices, g.price);
-      html += '<div class="item"><div class="item-main"><b>' + esc(g.name) + "</b> " + (g.bugs ? "🐞" : "") + ' <span class="muted">' + genre.name + " · " + price.label + "</span>" +
-        '<div class="muted">' + fmt(g.players) + " players · +" + fmt(playersPerSecondNow(g)) + "/s now</div></div></div>";
+      const size = byId(CONFIG.sizes, g.size || "small").label;
+      const stage = salesStage(g);
+      const stageText = '<span class="stage stage-' + stage.name.toLowerCase() + '">' + stage.name + "</span>" +
+        (stage.next ? ' <span class="muted">' + stage.next + " in " + fmtClock(stage.secondsToNext) + "</span>" : "");
+      html += '<div class="item"><div class="item-main"><b>' + esc(g.name) + "</b> " + (g.bugs ? "🐞" : "") + ' <span class="muted">' + genre.name + " · " + size + " · " + price.label + "</span>" +
+        '<div><span class="pink">' + moneyRate(playersPerSecondNow(g) * g.moneyPerPlayer) + '</span> · <span class="cyan">+' + fmt(playersPerSecondNow(g)) + " players/s</span> · " + fmt(g.players) + " players so far</div>" +
+        '<div class="muted">Out for ' + fmtClock(g.age) + " · " + stageText + "</div></div></div>";
     }
-    return { title: "Your games", html: html };
+    return { title: "Your games (" + state.released.length + ")", html: html };
   },
 
   panel_team() {
@@ -554,7 +698,12 @@ const UI = {
   panel_mail() {
     let html = "";
     if (!state.mail.length) html = '<p class="muted">No mail yet.</p>';
-    for (const m of state.mail) html += '<div class="mail"><b>' + esc(m.from) + "</b><div>" + esc(m.text) + "</div></div>";
+    else html += '<div class="row"><button class="btn small ghost" data-act="delete-read-mail">Delete old mail</button></div>';
+    for (const m of state.mail) {
+      const isNew = this.newMail[m.id];
+      html += '<div class="mail' + (isNew ? " new" : " old") + '"><div class="item-main">' + (isNew ? '<span class="new-tag">NEW</span> ' : "") + "<b>" + esc(m.from) + "</b><div>" + esc(m.text) + "</div></div>" +
+        '<button class="btn small ghost" data-act="delete-mail" data-id="' + m.id + '">X</button></div>';
+    }
     return { title: "Mailbox", html: html };
   },
 
@@ -656,6 +805,7 @@ const UI = {
       case "form-random-name": this.form.name = pickRandom(CONFIG.gameNameIdeas); this.renderPanel(); break;
       case "form-genre": this.form.name = $("game-name").value; this.form.genre = data.id; Sound.play("click"); this.renderPanel(); break;
       case "form-price": this.form.name = $("game-name").value; this.form.price = data.id; Sound.play("click"); this.renderPanel(); break;
+      case "form-size": this.form.name = $("game-name").value; this.form.size = data.id; Sound.play("click"); this.renderPanel(); break;
       case "form-feature": {
         this.form.name = $("game-name").value;
         const list = this.form.features;
@@ -667,8 +817,10 @@ const UI = {
       }
       case "form-start": {
         const nameValue = $("game-name").value.trim() || pickRandom(CONFIG.gameNameIdeas);
-        if (startNewGame(s, { name: nameValue.slice(0, 28), genre: this.form.genre, price: this.form.price, features: this.form.features })) {
+        if (startNewGame(s, { name: nameValue.slice(0, 28), genre: this.form.genre, price: this.form.price, features: this.form.features, size: this.form.size })) {
           Sound.play("step");
+          this.form = null;
+          this.panelStack = [];
           this.closePanel();
         } else no();
         break;
@@ -695,7 +847,16 @@ const UI = {
       // Store
       case "train": trainSkill(s, data.id) ? ok() : no(); this.renderPanel(); break;
       case "learn": learnEngine(s, data.id) ? ok() : no(); this.renderPanel(); break;
-      case "buy-feature": if (buyFeature(s, data.id)) { ok(); } else no(); this.renderPanel(); break;
+      case "buy-feature":
+        if (buyFeature(s, data.id)) {
+          ok();
+          if (this.form && !this.form.features.includes(data.id)) this.form.features.push(data.id);
+        } else no();
+        this.renderPanel();
+        break;
+      case "delete-mail": deleteMail(s, data.id); this.renderPanel(); break;
+      case "delete-read-mail": deleteReadMail(s); this.newMail = {}; this.renderPanel(); break;
+      case "skip-guide": s.guide = 99; break;
       case "supply": upgradeSupply(s, data.id) ? ok() : no(); this.renderPanel(); break;
 
       // Conventions

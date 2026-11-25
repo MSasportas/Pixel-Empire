@@ -70,7 +70,7 @@ const Minigames = {
         el.className = "mg-thing";
         el.textContent = emoji;
         const item = { el: el, x: 20 + Math.random() * (w - 60), y: -30, v: speedMin + Math.random() * (speedMax - speedMin), t: Math.random() * 6 };
-        el.addEventListener("mousedown", () => { hit(); el.remove(); item.dead = true; });
+        el.addEventListener("pointerdown", () => { hit(); el.remove(); item.dead = true; });
         game.arena.appendChild(el);
         game.items.push(item);
       }
