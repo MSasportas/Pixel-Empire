@@ -604,7 +604,6 @@ function releaseGame(state, p) {
 
   fanMailFor(state, p, numbers, repeats);
   giveTrophy(state, "first_game");
-  if (!p.bugs) giveTrophy(state, "no_bugs");
   if (CONFIG.genres.every(g => state.genresTried[g.id])) giveTrophy(state, "all_genres");
 }
 
