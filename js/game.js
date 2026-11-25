@@ -55,6 +55,7 @@ function newGameState(studioName, legacy, me) {
     createdAt: now,
     lastTick: now,
     playSeconds: 0,       // time actually spent with the game open
+    day: 0,               // game days since January 1, Year 1
     money: CONFIG.startMoney,
     fans: 0,
     playersTotal: 0,
@@ -355,7 +356,7 @@ function learnEngine(state, engineId) {
   if (state.engines.includes(e.id) || !isUnlocked(state, e)) return false;
   if (!spend(state, e.cost)) return false;
   state.engines.push(e.id);
-  addMail(state, "Engine school", "You learned " + e.name + "! " + e.fact);
+  addMail(state, "Engine school", "You learned " + e.name + "! It's good for: " + e.good);
   return true;
 }
 
@@ -501,7 +502,10 @@ function fanMailFor(state, project, numbers, repeats) {
 
 function tick(state, seconds, online) {
   const share = online ? 1 : CONFIG.awayShare;
-  if (online) state.playSeconds += seconds;
+  if (online) {
+    state.playSeconds += seconds;
+    passDays(state, seconds / CONFIG.secondsPerDay);
+  }
 
   // 1. Free hires pick up waiting work in their own section. If nothing
   //    is waiting, they help on the game with the most work left there.
@@ -555,6 +559,12 @@ function tick(state, seconds, online) {
   return { players: newPlayers, fans: newFans, money: newMoney };
 }
 
+// Moves the calendar forward, and makes every released game older.
+function passDays(state, days) {
+  state.day = (state.day || 0) + days;
+  for (const g of state.released) g.days = (g.days || 0) + days;
+}
+
 function finishStep(state, p) {
   if (p.worker === "you") state.you.projectId = null;
   p.worker = null;
@@ -577,7 +587,7 @@ function releaseGame(state, p) {
     id: p.id, name: p.name, genre: p.genre, price: p.price, features: p.features, size: p.size || "small",
     bugs: p.bugs, peak: numbers.peak, fanRate: numbers.fanRate,
     moneyPerPlayer: numbers.moneyPerPlayer, fadeSeconds: numbers.fadeSeconds,
-    age: 0, players: 0, launchedAt: state.playSeconds,
+    age: 0, players: 0, launchedAt: state.playSeconds, days: 0, launchDay: state.day || 0,
   });
   state.projects = state.projects.filter(x => x.id !== p.id);
 
@@ -645,6 +655,10 @@ function catchUp(state) {
     left -= s;
   }
 
+  // The calendar moves on more slowly while you're away.
+  const daysAway = away / CONFIG.awaySecondsPerDay;
+  passDays(state, daysAway);
+
   // Hard rule: after a long time away, you can always afford one upgrade.
   let bonus = 0;
   if (away >= CONFIG.welcomeBackAfterSeconds) {
@@ -656,6 +670,7 @@ function catchUp(state) {
 
   return {
     seconds: away,
+    days: daysAway,
     money: state.money - before.money - bonus,
     fans: state.fans - before.fans,
     players: state.playersTotal - before.players,

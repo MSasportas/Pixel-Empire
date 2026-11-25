@@ -184,6 +184,7 @@ input:focus, textarea:focus { outline: none; box-shadow: 0 0 10px var(--cyan); }
 .hud-line b { font-family: var(--title-font); font-size: 12px; }
 .hud-label { color: var(--muted); }
 .hud-rate { color: var(--muted); font-size: 16px; }
+.hud-date { color: var(--yellow); }
 .hud-small { color: var(--muted); font-size: 15px; margin-top: 2px; }
 .hud-goal { display: flex; align-items: center; gap: 6px; }
 .hud-goal .bar { flex: 1; margin-top: 2px; }
@@ -219,12 +220,6 @@ input:focus, textarea:focus { outline: none; box-shadow: 0 0 10px var(--cyan); }
 /* Store numbers: what a purchase adds */
 .gains { margin-top: 2px; }
 .gain { font-family: var(--title-font); font-size: 9px; margin-right: 8px; }
-.fact {
-  margin-top: 4px; padding: 3px 8px;
-  border-left: 3px solid var(--yellow);
-  background: rgba(255, 210, 63, 0.08);
-  color: var(--yellow);
-}
 .mini-row { display: flex; justify-content: space-between; gap: 10px; padding: 2px 0; border-bottom: 1px dashed #3a2c5c; }
 .stage { font-family: var(--title-font); font-size: 8px; padding: 1px 4px; }
 .stage-hot { background: var(--pink); color: var(--bg); }
