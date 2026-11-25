@@ -22,13 +22,12 @@ function fmt(n) {
 }
 function money(n) { return "$" + fmt(n); }
 
-// A rate as a whole number. If it's less than 1 a second, it's shown per
-// minute, or per hour, so it never needs decimals: "12/s", "40/min", "3/hr".
+// A rate (given per second) shown per MINUTE as a whole number, like
+// "720/min". If it's less than 1 a minute, it's shown per hour: "3/hr".
 function perTime(n) {
-  n = n || 0;
-  if (n <= 0 || n >= 0.5) return fmt(n) + "/s";
-  if (n * 60 >= 0.5) return fmt(n * 60) + "/min";
-  return fmt(Math.max(1, n * 3600)) + "/hr";
+  n = (n || 0) * 60;
+  if (n <= 0 || n >= 0.5) return fmt(n) + "/min";
+  return fmt(Math.max(1, n * 60)) + "/hr";
 }
 
 // How much bigger "after" is than "before", as a whole percent ("+12%").
@@ -103,12 +102,12 @@ function fmtClock(seconds) {
   return s + "s";
 }
 
-// Money per second.
+// Money per minute.
 function moneyRate(n) {
   return "$" + perTime(n);
 }
 
-// Money, players and fans per second, in their colors.
+// Money, players and fans per minute, in their colors.
 function ratesHtml(r) {
   return '<span class="pink">' + moneyRate(r.money) + '</span> · <span class="cyan">' + perTime(r.players).replace("/", " players/") + '</span> · <span class="yellow">' + perTime(r.fans).replace("/", " fans/") + "</span>";
 }
