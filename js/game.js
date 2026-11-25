@@ -50,7 +50,8 @@ function newGameState(studioName, legacy, me) {
 
   const now = Date.now();
   return {
-    version: 1,
+    version: 2,
+    scaled: true,
     studioName: studioName || "My Studio",
     createdAt: now,
     lastTick: now,
@@ -78,8 +79,34 @@ function newGameState(studioName, legacy, me) {
     nextEventAt: 0,       // playSeconds when the next invite can arrive
     legacy: legacy || 0,  // how many studios you founded after winning
     guide: 0,             // which step of the first-game guide you're on
+    seen: {},             // unlocked things you have already looked at
     won: false,
   };
+}
+
+// Older saves are missing some newer parts. This adds them.
+function upgradeSave(state) {
+  if (!state.scaled) {
+    // Saves from before the big rebalance used numbers 25 times smaller.
+    state.scaled = true;
+    if (state.version === 1) {
+      state.money *= 25; state.fans *= 25; state.playersTotal *= 25;
+      for (const g of state.released) {
+        g.peak *= 25; g.players *= 25;
+        g.fadeSeconds = CONFIG.fadeSeconds * (g.fadeSeconds / 600);
+      }
+    }
+  }
+  if (!state.seen) {
+    state.seen = {};
+    for (const u of unlockedItems(state)) state.seen[u.key] = true;
+  }
+  for (const g of state.released) {
+    if (g.fans === undefined) g.fans = g.players * g.fanRate;
+    if (g.money === undefined) g.money = g.players * g.moneyPerPlayer;
+  }
+  state.version = 2;
+  return state;
 }
 
 // ----- Studio level -------------------------------------------------
@@ -175,13 +202,53 @@ function gamePower(state, genreId) {
   return 0.6 * skillValue(state, genre.skill) + 0.4 * average;
 }
 
+// Stars: 1 to 5, in half steps. Every star needs double the power.
+function starsFor(power) {
+  const p = CONFIG.starPowers;
+  let stars = 1;
+  for (let i = 1; i < p.length; i++) {
+    if (power >= p[i]) stars = i + 1;
+    else { if (power >= Math.sqrt(p[i - 1] * p[i])) stars = i + 0.5; break; }
+  }
+  return stars;
+}
+
+function genreStars(state, genreId) {
+  return starsFor(gamePower(state, genreId));
+}
+
 function fanBoost(state) {
   return 1 + Math.pow(state.fans, CONFIG.fanBoostCurve) / CONFIG.fanBoostDivisor;
 }
 
-function repeatMultiplier(state, genreId) {
+function repeatMultiplier(state, genreId, isSequel) {
+  if (isSequel) return 1; // fans want sequels to games they liked
   const repeats = state.lastGenre === genreId ? state.genreStreak : 0;
   return Math.pow(CONFIG.repeatGenrePenalty, repeats);
+}
+
+// ----- Sequels ------------------------------------------------------
+
+// What a sequel to this released game would get.
+function sequelInfo(state, game) {
+  const days = game.days || 0;
+  const share = state.fans > 0 ? (game.fans || 0) / state.fans : 0;
+  const bonus = CONFIG.sequelMaxBonus * Math.min(1, share / CONFIG.sequelFullShare);
+  const inProgress = state.projects.some(p => p.sequelOf === game.id);
+  return {
+    made: !!game.sequelId || inProgress,
+    ready: days >= CONFIG.sequelAfterDays,
+    daysLeft: Math.max(0, CONFIG.sequelAfterDays - days),
+    bonus: bonus,                       // 0.5 = +50% players at launch
+    name: sequelName(game.name),
+  };
+}
+
+// "Space Noodle" -> "Space Noodle 2", "Space Noodle 2" -> "Space Noodle 3"
+function sequelName(name) {
+  const m = name.match(/^(.*?)\s+(\d+)$/);
+  if (m) return m[1] + " " + (Number(m[2]) + 1);
+  return name + " 2";
 }
 
 // Works out the numbers for a game at the moment it launches.
@@ -195,9 +262,10 @@ function launchNumbers(state, project) {
     featReach *= f.reach; featFans *= f.fans; fade *= f.fade;
   }
   const power = gamePower(state, project.genre);
+  const sequelBoost = 1 + (project.sequelBonus || 0);
   const peak = CONFIG.basePeak * Math.pow(power, CONFIG.powerCurve)
     * genre.pop * price.reach * featReach * size.reach
-    * repeatMultiplier(state, project.genre) * fanBoost(state);
+    * repeatMultiplier(state, project.genre, !!project.sequelOf) * fanBoost(state) * sequelBoost;
   let fanRate = CONFIG.baseFanRate * price.fans * genre.loyal * featFans;
   if (project.bugs) fanRate *= CONFIG.bugFanPenalty;
   return {
@@ -206,6 +274,7 @@ function launchNumbers(state, project) {
     moneyPerPlayer: price.money,
     fadeSeconds: CONFIG.fadeSeconds * fade,
     power: power,
+    stars: starsFor(power),
   };
 }
 
@@ -213,12 +282,20 @@ function launchNumbers(state, project) {
 // (in seconds). Sales fade: rate = peak / (1 + age / fade) ^ fadePower.
 // (This is the area under the "players per second" curve.)
 function playersBetween(game, a, b) {
-  const f = game.fadeSeconds, q = 1 - CONFIG.fadePower;
-  return game.peak * f / q * (Math.pow(1 + b / f, q) - Math.pow(1 + a / f, q));
+  const f = game.fadeSeconds, q = 1 - CONFIG.fadePower, old = CONFIG.oldShare;
+  const fading = q === 0
+    ? f * Math.log((1 + b / f) / (1 + a / f))
+    : f / q * (Math.pow(1 + b / f, q) - Math.pow(1 + a / f, q));
+  return game.peak * (old * (b - a) + (1 - old) * fading);
+}
+
+function playersPerSecondAt(game, age) {
+  const old = CONFIG.oldShare;
+  return game.peak * (old + (1 - old) / Math.pow(1 + age / game.fadeSeconds, CONFIG.fadePower));
 }
 
 function playersPerSecondNow(game) {
-  return game.peak / Math.pow(1 + game.age / game.fadeSeconds, CONFIG.fadePower);
+  return playersPerSecondAt(game, game.age);
 }
 
 // Sales stages: Hot, Steady, Fading, Old. Returns the stage now and
@@ -232,7 +309,9 @@ function salesStage(game) {
   let secondsToNext = null;
   if (next) {
     // The age when sales drop to the next stage's share of the peak.
-    const ageAtNext = game.fadeSeconds * (Math.pow(stages[i].above, -1 / CONFIG.fadePower) - 1);
+    const old = CONFIG.oldShare;
+    const fadingShare = (stages[i].above - old) / (1 - old);
+    const ageAtNext = game.fadeSeconds * (Math.pow(fadingShare, -1 / CONFIG.fadePower) - 1);
     secondsToNext = Math.max(0, ageAtNext - game.age);
   }
   return { name: stages[i].name, next: next ? next.name : null, secondsToNext: secondsToNext };
@@ -250,8 +329,9 @@ function usualGame(state) {
 
 // Players and fans per second right after launch for a game like this.
 function previewLaunch(state, game) {
-  const n = launchNumbers(state, { genre: game.genre, price: game.price, size: game.size, features: game.features, bugs: false });
-  return { players: n.peak, fans: n.peak * n.fanRate, money: n.peak * n.moneyPerPlayer };
+  const n = launchNumbers(state, { genre: game.genre, price: game.price, size: game.size, features: game.features, bugs: false,
+    sequelOf: game.sequelOf, sequelBonus: game.sequelBonus });
+  return { players: n.peak, fans: n.peak * n.fanRate, money: n.peak * n.moneyPerPlayer, stars: n.stars, fadeSeconds: n.fadeSeconds, fanRate: n.fanRate, moneyPerPlayer: n.moneyPerPlayer };
 }
 
 // How much a change (like training a skill) would help a game like this.
@@ -270,8 +350,52 @@ function isUnlocked(state, item) {
   return studioLevel(state) >= item.level;
 }
 
+// Everything that unlocks with studio levels. "where" says where you find it.
+function allUnlockables() {
+  const list = [];
+  const add = (kind, where, items) => items.forEach(it => list.push({ key: kind + ":" + it.id, kind: kind, where: where, id: it.id, name: it.name || it.label, level: it.level }));
+  add("genre", "make", CONFIG.genres);
+  add("price", "make", CONFIG.prices);
+  add("size", "make", CONFIG.sizes);
+  add("engine", "engines", CONFIG.engines);
+  add("feature", "features", CONFIG.features);
+  CONFIG.levels.forEach((l, i) => {
+    if (l.desks > 0) list.push({ key: "desks:" + l.desks, kind: "desks", where: "desks", id: String(l.desks), level: i + 1,
+      name: l.desks === 1 ? "Hiring! 1 desk in each section" : l.desks + " desks in each section" });
+  });
+  return list;
+}
+
+// What a studio level unlocks (for the level-up card).
+function unlocksAt(level) {
+  return allUnlockables().filter(u => u.level === level);
+}
+
+function unlockedItems(state) {
+  const lv = studioLevel(state);
+  return allUnlockables().filter(u => u.level <= lv);
+}
+
+// Unlocked things you haven't looked at yet. "where" can be "make",
+// "engines", "features", "desks", or "store" for all three Store tabs.
+function newUnlocks(state, where) {
+  const seen = state.seen || {};
+  return unlockedItems(state).filter(u => !seen[u.key] && u.level > 1 &&
+    (!where || u.where === where || (where === "store" && u.where !== "make")));
+}
+
+function isNewUnlock(state, kind, id) {
+  const key = kind + ":" + id;
+  return newUnlocks(state).some(u => u.key === key);
+}
+
+function markSeen(state, where) {
+  if (!state.seen) state.seen = {};
+  for (const u of newUnlocks(state, where)) state.seen[u.key] = true;
+}
+
 function maxProjects(state) {
-  return 1 + state.hires.length;
+  return levelInfo(state).current.games;
 }
 
 function desksAllowed(state) {
@@ -307,6 +431,13 @@ function spend(state, amount) {
 
 function startNewGame(state, details) {
   if (state.projects.length >= maxProjects(state)) return false;
+  if (details.sequelOf) {
+    const original = state.released.find(g => g.id === details.sequelOf);
+    if (!original) return false;
+    const info = sequelInfo(state, original);
+    if (info.made || !info.ready) return false;
+    details = Object.assign({}, details, { genre: original.genre, sequelBonus: info.bonus });
+  }
   state.projects.push({
     id: makeId(),
     name: details.name,
@@ -314,6 +445,8 @@ function startNewGame(state, details) {
     price: details.price,
     features: details.features.slice(),
     size: details.size || "small",
+    sequelOf: details.sequelOf || null,   // the game this is a sequel to
+    sequelBonus: details.sequelBonus || 0,
     helpers: [],          // hires helping on this step
     step: 0,
     progress: 0,          // seconds of work done on this step
@@ -410,15 +543,21 @@ function upgradeSupply(state, supplyId) {
   return true;
 }
 
-// Each mini-game hit finishes a bit more of the step (up to a limit).
-function applyMinigame(state, projectId, hits) {
+// Can you play a mini-game to speed up this game's step right now?
+// Yes if someone is working on it and nobody played one on this step yet.
+function canSpeedUp(state, project) {
+  const step = CONFIG.steps[project.step];
+  return !!(project.worker && step.minigame && !project.boostUsed);
+}
+
+// A mini-game's score (0 to 1) finishes that much of the work left.
+// A perfect score (1) finishes the whole step.
+function applyMinigame(state, projectId, score) {
   const p = state.projects.find(x => x.id === projectId);
   if (!p) return;
-  const maxBoost = CONFIG.minigameMaxSpeed * stepDuration(state, p);
-  const extra = Math.min(hits * CONFIG.minigameSpeedPerHit * stepDuration(state, p), maxBoost - p.boost);
-  if (extra <= 0) return;
-  p.boost += extra;
-  p.progress += extra;
+  const left = Math.max(0, stepDuration(state, p) - p.progress);
+  p.progress += left * Math.max(0, Math.min(1, score));
+  if (p.progress >= stepDuration(state, p) - 0.001) finishStep(state, p);
 }
 
 function acceptEvent(state, gameId) {
@@ -535,6 +674,8 @@ function tick(state, seconds, online) {
     const players = playersBetween(g, g.age, g.age + seconds);
     g.age += seconds;
     g.players += players * share;
+    g.fans = (g.fans || 0) + players * g.fanRate * share;
+    g.money = (g.money || 0) + players * g.moneyPerPlayer * share;
     newPlayers += players * share;
     newFans += players * g.fanRate * share;
     newMoney += players * g.moneyPerPlayer * share;
@@ -562,7 +703,18 @@ function tick(state, seconds, online) {
 // Moves the calendar forward, and makes every released game older.
 function passDays(state, days) {
   state.day = (state.day || 0) + days;
-  for (const g of state.released) g.days = (g.days || 0) + days;
+  for (const g of state.released) {
+    const before = g.days || 0;
+    g.days = before + days;
+    // Fans ask for a sequel when it becomes possible and the game did well.
+    if (before < CONFIG.sequelAfterDays && g.days >= CONFIG.sequelAfterDays && !g.sequelId) {
+      const info = sequelInfo(state, g);
+      if (info.bonus >= 0.3) {
+        g.sequelHot = true;
+        addMail(state, pickRandom(FAN_NAMES), "When is " + info.name + " coming out?! I need more " + g.name + "! (Open Games and click Create sequel.)");
+      }
+    }
+  }
 }
 
 function finishStep(state, p) {
@@ -587,8 +739,14 @@ function releaseGame(state, p) {
     id: p.id, name: p.name, genre: p.genre, price: p.price, features: p.features, size: p.size || "small",
     bugs: p.bugs, peak: numbers.peak, fanRate: numbers.fanRate,
     moneyPerPlayer: numbers.moneyPerPlayer, fadeSeconds: numbers.fadeSeconds,
-    age: 0, players: 0, launchedAt: state.playSeconds, days: 0, launchDay: state.day || 0,
+    age: 0, players: 0, fans: 0, money: 0, launchedAt: state.playSeconds, days: 0, launchDay: state.day || 0,
+    stars: numbers.stars, sequelOf: p.sequelOf || null, sequelId: null,
   });
+  if (p.sequelOf) {
+    const original = state.released.find(g => g.id === p.sequelOf);
+    if (original) original.sequelId = p.id;
+    giveTrophy(state, "first_sequel");
+  }
   state.projects = state.projects.filter(x => x.id !== p.id);
 
   // Variety: count repeats of the same genre in a row.
@@ -723,7 +881,7 @@ function importSave(text) {
 
 // Lets the balance test (tools/balance-test.js) use this file in Node.
 if (typeof module !== "undefined") {
-  module.exports = { newGameState, tick, startNewGame, youStartStep, skipTesting, trainSkill,
+  module.exports = { newGameState, upgradeSave, sequelInfo, canSpeedUp, applyMinigame, genreStars, previewLaunch, gamePower, launchNumbers, tick, startNewGame, youStartStep, skipTesting, trainSkill,
     learnEngine, buyFeature, buyDesk, hire, upgradeSupply, studioLevel, trainCost, deskCost,
     hireCost, supplyCost, desksAllowed, hiresIn, isUnlocked, maxProjects, skillValue, catchUp,
     byId, levelInfo, acceptEvent };

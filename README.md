@@ -24,7 +24,7 @@ made by the code itself.
 | `js/game.js` | The rules: making games, players, fans, money, saving. |
 | `js/office.js` | Draws the office and the little people with pixel art. |
 | `js/music.js` | The synthwave music and sound effects. |
-| `js/minigames.js` | The 15-second speed-up games. |
+| `js/minigames.js` | The speed-up mini-games. Play one perfectly and the step is done! |
 | `js/ui.js` | The title screen, the HUD boxes and all the pop-up panels. |
 | `js/main.js` | Starts the game and keeps it running. |
 | `tools/balance-test.js` | A robot plays the game super fast to check the numbers. |
@@ -41,7 +41,9 @@ To see how a change affects the whole game, run the robot test (you need
 node tools/balance-test.js
 ```
 
-It prints how many hours of play each studio level takes.
+It prints how many hours of play and how many games each studio level takes.
+Try `node tools/balance-test.js casual` to see a player who never plays the
+mini-games.
 
 ## Saves
 
