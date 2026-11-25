@@ -207,15 +207,15 @@ const Office = {
   fit() {
     const hudOn = !document.getElementById("hud").classList.contains("hidden");
     const box = sel => document.querySelector(sel).getBoundingClientRect();
-    const top = hudOn ? Math.max(box(".hud-box.tl").bottom, box(".hud-box.tr").bottom) + 6 : 0;
-    const bottom = hudOn ? window.innerHeight - Math.min(box(".hud-box.bl").top, box(".hud-box.br").top) + 6 : 0;
+    const top = hudOn ? Math.max(box(".hud-box.tl").bottom, box(".hud-box.tr").bottom) + 2 : 0;
+    const bottom = hudOn ? window.innerHeight - Math.min(box(".hud-box.bl").top, box(".hud-box.br").top) + 2 : 0;
     // On narrow screens, the guide and invites sit just under the top boxes.
     document.getElementById("topcenter").style.top = (window.innerWidth < 760 && hudOn ? top : 8) + "px";
     const wrap = document.getElementById("office-wrap");
     wrap.style.top = top + "px";
     wrap.style.bottom = bottom + "px";
     const scale = Math.min(window.innerWidth / WORLD_W, (window.innerHeight - top - bottom) / WORLD_H);
-    const s = scale >= 2 ? Math.floor(scale * 2) / 2 : scale; // keeps pixels sharp
+    const s = scale;   // use all the room there is
     this.canvas.style.width = Math.floor(WORLD_W * s) + "px";
     this.canvas.style.height = Math.floor(WORLD_H * s) + "px";
   },

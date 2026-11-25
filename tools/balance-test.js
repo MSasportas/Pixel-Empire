@@ -32,7 +32,7 @@ const GOOD = PLAYER === "good";
 const CLICK_DELAY = GOOD ? 10 : 30;  // seconds before clicking a waiting step
 const THINK = GOOD ? 20 : 45;        // seconds to set up a new game
 const SHOP_EVERY = GOOD ? 60 : 180;  // how often they go shopping
-const MG_SECONDS = { ideas: 20, code: 30, blocks: 20, bugs: 15 };
+const MG_SECONDS = { ideas: 30, code: 30, blocks: 20, bugs: 30 };
 const MG_SCORE = 0.8;                // average mini-game score (a few mistakes)
 
 const state = G.newGameState("Robot Studio", 0, null);
@@ -104,11 +104,13 @@ for (; t < STOP_HOURS * 3600; t += 1) {
       p.pendingScore = MG_SCORE;
       p.pendingAt = busyUntil;
       p.pendingStep = p.step;
+      p.playing = true;  // the step waits while you play
       minigames++;
     }
   }
   for (const p of state.projects.slice()) {
     if (p.pendingAt === t) {
+      p.playing = false;
       if (p.step === p.pendingStep && p.worker) G.applyMinigame(state, p.id, p.pendingScore);
       p.pendingAt = null;
     }
@@ -125,6 +127,7 @@ for (; t < STOP_HOURS * 3600; t += 1) {
 }
 console.log("Player: " + PLAYER);
 console.log(report.join("\n"));
+console.log("Hits: " + state.released.filter(g => g.hit).length + " of " + state.released.filter(g => g.judged).length + " checked games");
 console.log("Stopped at " + (t / 3600).toFixed(2) + " h with " + Math.round(state.fans).toLocaleString() + " fans, " + state.released.length + " games, " + sequels + " sequels, " + minigames + " mini-games");
 console.log("Skills: " + Object.keys(state.skills).map(k => k + " " + state.skills[k].level).join(", "));
 const g0 = state.released[0];
