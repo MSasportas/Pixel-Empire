@@ -202,7 +202,6 @@ const CONFIG = {
     { id: "first_game",  name: "First game released",   reward: 1000 },
     { id: "fans_100",    name: "100 fans",              reward: 2000,    fans: 100 },
     { id: "first_hire",  name: "First hire",            reward: 10000 },
-    { id: "no_bugs",     name: "A game with no bugs at launch", reward: 3000 },
     { id: "fans_5000",   name: "5,000 fans",            reward: 50000,   fans: 5000 },
     { id: "all_genres",  name: "Every genre tried once", reward: 500000 },
     { id: "first_con",   name: "First convention",      reward: 30000 },
