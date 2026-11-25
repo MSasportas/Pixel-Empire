@@ -20,6 +20,30 @@ function pickRandom(list) {
   return list[Math.floor(Math.random() * list.length)];
 }
 
+// ----- Random names -------------------------------------------------
+
+// A new game name, like "Turbo Llama" or "Penguins vs. Robots".
+function randomGameName() {
+  const n = pickRandom(CONFIG.gameNouns);
+  let n2 = pickRandom(CONFIG.gameNouns);
+  while (n2 === n) n2 = pickRandom(CONFIG.gameNouns);
+  return pickRandom(CONFIG.gameNamePatterns)
+    .replace("{a}", pickRandom(CONFIG.gameAdjectives)).replace("{n2}", n2).replace("{n}", n);
+}
+
+function randomHireName() {
+  return pickRandom(CONFIG.hireFirstNames) + " " + pickRandom(CONFIG.hireLastNames);
+}
+
+// A fan's username, like "TurboQueen42".
+function randomFanName() {
+  return pickRandom(CONFIG.fanFirst) + pickRandom(CONFIG.fanSecond) + (Math.random() < 0.6 ? Math.floor(Math.random() * 99 + 1) : "");
+}
+
+function randomEventName() {
+  return pickRandom(CONFIG.eventFirst) + " " + pickRandom(CONFIG.eventSecond);
+}
+
 let nextIdCounter = 1;
 function makeId() {
   return Date.now().toString(36) + "-" + (nextIdCounter++);
@@ -97,6 +121,8 @@ function upgradeSave(state) {
       }
     }
   }
+  for (const p of state.projects) p.playing = false;   // a mini-game can't still be running
+  for (const g of state.released) if (g.sequelHot !== undefined) delete g.sequelHot;
   if (!state.seen) {
     state.seen = {};
     for (const u of unlockedItems(state)) state.seen[u.key] = true;
@@ -230,18 +256,41 @@ function repeatMultiplier(state, genreId, isSequel) {
 // ----- Sequels ------------------------------------------------------
 
 // What a sequel to this released game would get.
+// Only hits can have a sequel (see judgeHit).
 function sequelInfo(state, game) {
   const days = game.days || 0;
-  const share = state.fans > 0 ? (game.fans || 0) / state.fans : 0;
-  const bonus = CONFIG.sequelMaxBonus * Math.min(1, share / CONFIG.sequelFullShare);
   const inProgress = state.projects.some(p => p.sequelOf === game.id);
   return {
+    judged: !!game.judged,              // has the hit check happened?
+    hit: !!game.hit,
     made: !!game.sequelId || inProgress,
-    ready: days >= CONFIG.sequelAfterDays,
-    daysLeft: Math.max(0, CONFIG.sequelAfterDays - days),
-    bonus: bonus,                       // 0.5 = +50% players at launch
+    ready: !!game.hit,
+    daysLeft: Math.max(0, CONFIG.hitCheckDays - days),
+    bonus: game.sequelBonus || 0,       // 0.5 = +50% players at launch
     name: sequelName(game.name),
   };
+}
+
+// After a game year, a game is checked: did it win a lot more fans in
+// its first year than your last few games did? Then it's a hit!
+function judgeHit(state, game) {
+  game.judged = true;
+  game.fansAtYear = game.fans || 0;
+  const history = state.hitHistory || (state.hitHistory = []);
+  const recent = history.slice(-CONFIG.hitCompareGames);
+  const average = recent.length ? recent.reduce((a, b) => a + b, 0) / recent.length : 0;
+  const ratio = average > 0 ? game.fansAtYear / average : 2;
+  history.push(game.fansAtYear);
+  if (history.length > 20) history.shift();
+  game.hitRatio = ratio;
+  game.hit = ratio >= CONFIG.hitRatio && game.fansAtYear > 0;
+  if (game.hit) {
+    game.sequelBonus = Math.max(CONFIG.sequelMinBonus, Math.min(CONFIG.sequelMaxBonus, ratio - CONFIG.hitRatio + CONFIG.sequelMinBonus));
+    if (!game.sequelId) {
+      addMail(state, randomFanName(), game.name + " is a HIT! It won " + Math.round(ratio * 10) / 10 + " times as many fans as your recent games. When is " +
+        sequelName(game.name) + " coming out?! (Open Games and click Create sequel.)");
+    }
+  }
 }
 
 // "Space Noodle" -> "Space Noodle 2", "Space Noodle 2" -> "Space Noodle 3"
@@ -515,7 +564,7 @@ function hire(state, sectionId) {
   const step = byId(CONFIG.steps, sectionId);
   const person = {
     id: makeId(),
-    name: pickRandom(CONFIG.hireFirstNames) + " " + pickRandom(CONFIG.hireLastNames),
+    name: randomHireName(),
     section: sectionId,
     job: step.job,
     look: randomLook(),
@@ -565,11 +614,25 @@ function acceptEvent(state, gameId) {
   const game = state.released.find(g => g.id === gameId);
   if (!game) return false;
   // The game feels brand new again: a burst of new players.
+  // Work out what that adds over the next game year, to tell you.
+  const year = CONFIG.hitCheckDays * CONFIG.secondsPerDay;
+  const before = { rate: playersPerSecondNow(game), year: playersBetween(game, game.age, game.age + year) };
+  const oldAge = game.age;
   game.age = 0;
-  addMail(state, state.event.name, "Everyone loved playing " + game.name + " at " + state.event.name + "! New players are pouring in.");
+  const after = { rate: playersPerSecondNow(game), year: playersBetween(game, 0, year) };
+  const extra = Math.max(0, after.year - before.year);
+  const result = {
+    event: state.event.name, game: game.name,
+    rateBefore: before.rate, rateAfter: after.rate,
+    players: extra, money: extra * game.moneyPerPlayer, fans: extra * game.fanRate, wasAge: oldAge,
+  };
+  addMail(state, state.event.name, "Everyone loved playing " + game.name + " at " + state.event.name + "! It's selling like it just came out: " +
+    Math.round(after.rate).toLocaleString("en-US") + " players a second instead of " + Math.round(before.rate).toLocaleString("en-US") +
+    ". Over the next year that's about " + Math.round(extra).toLocaleString("en-US") + " extra players, $" + Math.round(result.money).toLocaleString("en-US") +
+    " and " + Math.round(result.fans).toLocaleString("en-US") + " fans.");
   state.event = null;
   giveTrophy(state, "first_con");
-  return true;
+  return result;
 }
 
 function declineEvent(state) {
@@ -607,12 +670,11 @@ function checkFullOffice(state) {
   if (full) giveTrophy(state, "full_office");
 }
 
-const FAN_NAMES = ["GamerKid99", "PixelPal", "LlamaFan", "SpeedyRunner", "RetroRita", "BossBattler", "CoinCollector", "NoobMaster", "JumpQueen", "Sir Clicks-a-lot"];
 
 // Fan mail gives hints about what went well or badly.
 function fanMailFor(state, project, numbers, repeats) {
   const genre = byId(CONFIG.genres, project.genre);
-  const from = pickRandom(FAN_NAMES);
+  const from = randomFanName();
   if (project.bugs) {
     addMail(state, from, pickRandom([
       "Did they even test " + project.name + " before launch? I fell through the floor!",
@@ -663,7 +725,7 @@ function tick(state, seconds, online) {
 
   // 2. Work on games in progress. Every person working adds speed.
   for (const p of state.projects.slice()) {
-    if (!p.worker) continue;
+    if (!p.worker || p.playing) continue;   // the step waits while you play its mini-game
     p.progress += seconds * workersOn(p);
     if (p.progress >= stepDuration(state, p)) finishStep(state, p);
   }
@@ -703,17 +765,11 @@ function tick(state, seconds, online) {
 // Moves the calendar forward, and makes every released game older.
 function passDays(state, days) {
   state.day = (state.day || 0) + days;
-  for (const g of state.released) {
-    const before = g.days || 0;
-    g.days = before + days;
-    // Fans ask for a sequel when it becomes possible and the game did well.
-    if (before < CONFIG.sequelAfterDays && g.days >= CONFIG.sequelAfterDays && !g.sequelId) {
-      const info = sequelInfo(state, g);
-      if (info.bonus >= 0.3) {
-        g.sequelHot = true;
-        addMail(state, pickRandom(FAN_NAMES), "When is " + info.name + " coming out?! I need more " + g.name + "! (Open Games and click Create sequel.)");
-      }
-    }
+  // Oldest games first, so each game is compared with the ones before it.
+  for (let i = state.released.length - 1; i >= 0; i--) {
+    const g = state.released[i];
+    g.days = (g.days || 0) + days;
+    if (!g.judged && g.days >= CONFIG.hitCheckDays) judgeHit(state, g);
   }
 }
 
@@ -774,7 +830,7 @@ function updateEvent(state) {
     state.nextEventAt = state.playSeconds + CONFIG.eventEverySeconds;
   }
   if (!state.event && state.playSeconds >= state.nextEventAt) {
-    const name = pickRandom(CONFIG.eventNames);
+    const name = randomEventName();
     state.event = { name: name, expiresAt: state.playSeconds + CONFIG.eventExpireSeconds };
     state.nextEventAt = state.playSeconds + CONFIG.eventEverySeconds * (0.75 + Math.random() * 0.5);
     addMail(state, name, "You're invited to " + name + "! Pick one of your games to show off for a burst of new players.");
@@ -881,7 +937,7 @@ function importSave(text) {
 
 // Lets the balance test (tools/balance-test.js) use this file in Node.
 if (typeof module !== "undefined") {
-  module.exports = { newGameState, upgradeSave, sequelInfo, canSpeedUp, applyMinigame, genreStars, previewLaunch, gamePower, launchNumbers, tick, startNewGame, youStartStep, skipTesting, trainSkill,
+  module.exports = { randomGameName, judgeHit, newGameState, upgradeSave, sequelInfo, canSpeedUp, applyMinigame, genreStars, previewLaunch, gamePower, launchNumbers, tick, startNewGame, youStartStep, skipTesting, trainSkill,
     learnEngine, buyFeature, buyDesk, hire, upgradeSupply, studioLevel, trainCost, deskCost,
     hireCost, supplyCost, desksAllowed, hiresIn, isUnlocked, maxProjects, skillValue, catchUp,
     byId, levelInfo, acceptEvent };

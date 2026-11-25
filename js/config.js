@@ -157,19 +157,22 @@ const CONFIG = {
   starPowers: [1, 2, 4, 8, 16],
 
   // ----- Sequels ----------------------------------------------------
-  // A released game can get a sequel (like "Space Noodle 2") once it has
-  // been out for "sequelAfterDays" game days. The sequel launches with
-  // extra players: more if the first game won lots of your fans.
-  sequelAfterDays: 30,
-  sequelMaxBonus: 1.5,       // up to +150% players at launch
-  sequelFullShare: 0.25,     // the first game made 25% of your fans = full bonus
+  // Only hits get sequels. After a game has been out for one game year
+  // ("hitCheckDays"), we compare the fans it won with your last few games.
+  // If it won "hitRatio" times as many (1.75 = 75% more), it's a HIT and
+  // fans ask for a sequel. A bigger hit gives the sequel a bigger launch.
+  hitCheckDays: 360,
+  hitCompareGames: 5,        // compare with this many of your last games
+  hitRatio: 1.75,
+  sequelMinBonus: 0.5,       // a small hit: sequel gets +50% players at launch
+  sequelMaxBonus: 1.5,       // a giant hit: up to +150%
   // Skipping testing: this share of fans compared to a tested game.
   bugFanPenalty: 0.5,
   // Sales fade: players per second =
   //   peak * (oldShare + (1 - oldShare) / (1 + age / fadeSeconds) ^ fadePower)
   // A bigger fadeSeconds means games keep selling for longer.
   // Old games never stop: they keep "oldShare" of their launch sales.
-  fadeSeconds: 1500,
+  fadeSeconds: 2000,
   fadePower: 1.2,
   oldShare: 0.02,
   // Names for how well a game is selling compared to launch day.
@@ -201,8 +204,8 @@ const CONFIG = {
   // ----- The calendar -----------------------------------------------
   // The game starts on January 1, Year 1. While you play, one game day
   // passes every "secondsPerDay" real seconds.
-  // 24 seconds = 1 day, so 1 hour of play is 150 days (5 months).
-  secondsPerDay: 24,
+  // 12 seconds = 1 day, so 1 hour of play is 300 days (10 months).
+  secondsPerDay: 12,
   // While you're away, the calendar moves slower: one game day for every
   // "awaySecondsPerDay" real seconds (3600 = 1 hour), so a week away is
   // about half a year in the game instead of 27 years.
@@ -218,7 +221,10 @@ const CONFIG = {
   eventFirstLevel: 2,              // invites start at this studio level
   eventEverySeconds: 12 * 60,      // about how often an invite arrives
   eventExpireSeconds: 5 * 60,      // how long you have to say yes
-  eventNames: ["Pixel Expo", "GameFest", "Indie Showcase", "Big Play Con", "Level Up Live", "Joystick Jam"],
+  // Event names are made from a first part and a second part, like "Pixel Fest".
+  eventFirst: ["Pixel", "Game", "Indie", "Big Play", "Level Up", "Joystick", "Neon", "Retro", "Mega", "Turbo", "Arcade", "Super",
+    "Galaxy", "Power Up", "Boss Level", "High Score", "Controller", "Cartridge", "Speedrun", "Player One", "Bit", "Combo", "Quest", "Byte"],
+  eventSecond: ["Expo", "Fest", "Con", "Showcase", "Live", "Jam", "World", "Summit", "Party", "Weekend", "Bash", "Fair", "Night", "Arena"],
 
   // ----- Trophies ---------------------------------------------------
   trophies: [
@@ -251,7 +257,35 @@ const CONFIG = {
   },
 
   // ----- Made-up names ----------------------------------------------
-  hireFirstNames: ["Ada", "Bo", "Cleo", "Dev", "Eli", "Fin", "Gus", "Hana", "Ivo", "Jun", "Kai", "Lia", "Milo", "Nia", "Oz", "Pip", "Quin", "Rae", "Sol", "Tess", "Uma", "Vic", "Wren", "Xan", "Yuki", "Zed"],
-  hireLastNames: ["Pixelton", "Byteworth", "Codewell", "Sprite", "Looper", "Glitchman", "Framesby", "Debuggins", "Polygon", "Joystick", "Keyes", "Render"],
-  gameNameIdeas: ["Turbo Llama", "Castle of Clouds", "Space Noodle", "Robo Rumble", "Ninja Pancake", "Dragon Garden", "Pixel Quest", "Moon Racers", "Laser Penguins", "Jungle Jump", "Mega Bounce", "Star Farmer"],
+  // Names are mixed from these lists, so there are thousands of them.
+  hireFirstNames: ["Ada", "Bo", "Cleo", "Dev", "Eli", "Fin", "Gus", "Hana", "Ivo", "Jun", "Kai", "Lia", "Milo", "Nia", "Oz", "Pip",
+    "Quin", "Rae", "Sol", "Tess", "Uma", "Vic", "Wren", "Xan", "Yuki", "Zed", "Ari", "Bea", "Cal", "Dot", "Ezra", "Faye", "Gio",
+    "Hal", "Iris", "Jax", "Kit", "Luz", "Max", "Nova", "Otis", "Pia", "Ray", "Sky", "Theo", "Ula", "Vera", "Wes", "Yara", "Zoe",
+    "Abe", "Bex", "Cy", "Dina", "Emi", "Flo", "Gemma", "Hugo", "Ines", "Joy", "Kofi", "Lars", "Mina", "Ned", "Olu", "Priya",
+    "Remy", "Sami", "Tao", "Umar", "Val", "Wyatt", "Ximena", "Yosef", "Zara", "Ash", "Benji", "Coco", "Dax", "Edie", "Ferris",
+    "Gale", "Harper", "Indy", "Juno", "Kenji", "Lulu", "Mabel", "Nico", "Opal", "Pax", "Rio", "Suki", "Tuck", "Vito", "Willa"],
+  hireLastNames: ["Pixelton", "Byteworth", "Codewell", "Sprite", "Looper", "Glitchman", "Framesby", "Debuggins", "Polygon",
+    "Joystick", "Keyes", "Render", "Bitsworth", "Clickman", "Voxel", "Shader", "Patchwell", "Saveson", "Levelton", "Spawnly",
+    "Hitbox", "Tilesby", "Arcadia", "Cartridge", "Combo", "Dpad", "Respawn", "Quickload", "Bossman", "Powerup", "Checkpoint",
+    "Scrolls", "Buttons", "Gamewell", "Loadsworth", "Mapley", "Questor", "Scorely", "Turbo", "Highscore", "Rumble", "Glimmer",
+    "Starling", "Moonbeam", "Sparks", "Rocketson", "Comet", "Nebula", "Lasers", "Zapp", "Fizzwick", "Boop", "Wobble", "Jumpwell",
+    "Dashley", "Sprinter", "Bounce", "Puzzler", "Riddle", "Inkwell", "Sketchy", "Doodle", "Brushly", "Melody", "Beatbox", "Tempo"],
+  // Game names: an adjective and a thing, like "Turbo Llama", or a pattern like "Llama Quest".
+  gameAdjectives: ["Turbo", "Space", "Robo", "Ninja", "Dragon", "Pixel", "Moon", "Laser", "Jungle", "Mega", "Star", "Super",
+    "Tiny", "Giant", "Sneaky", "Cosmic", "Crystal", "Shadow", "Thunder", "Rocket", "Bouncy", "Frozen", "Fire", "Neon", "Retro",
+    "Wild", "Lucky", "Haunted", "Sky", "Ocean", "Desert", "Candy", "Banana", "Electric", "Galactic", "Secret", "Lost", "Brave",
+    "Silly", "Speedy", "Wobbly", "Glitchy", "Hyper", "Ultra", "Rainbow", "Midnight", "Steam", "Pirate", "Volcano", "Magic",
+    "Atomic", "Fuzzy", "Golden", "Iron", "Mystic", "Noisy", "Quantum", "Rusty", "Sparkly", "Stormy", "Toxic", "Velvet", "Zombie"],
+  gameNouns: ["Llama", "Noodle", "Rumble", "Pancake", "Garden", "Quest", "Racers", "Penguins", "Jump", "Bounce", "Farmer",
+    "Castle", "Knights", "Robots", "Dragons", "Hamsters", "Goblins", "Wizards", "Pirates", "Tacos", "Donuts", "Ducks", "Frogs",
+    "Ninjas", "Monsters", "Kingdom", "Island", "Planet", "Galaxy", "Dungeon", "Arena", "Legends", "Heroes", "Raiders", "Run",
+    "Dash", "Blast", "Battle", "Escape", "Adventure", "Tactics", "Empire", "Tycoon", "Party", "Mayhem", "Saga", "Odyssey",
+    "Builders", "Hunters", "Rangers", "Squad", "Patrol", "Express", "Derby", "League", "Cup", "Beats", "Groove", "Puzzle",
+    "Blocks", "Golems", "Slimes", "Yetis", "Unicorns", "Cats", "Corgis", "Owls", "Sharks", "Bees", "Turtles", "Meteor"],
+  gameNamePatterns: ["{a} {n}", "{a} {n}", "{a} {n}", "{n} Quest", "{n} of the {a} Moon", "Super {a} {n}", "{a} {n} Deluxe",
+    "The {a} {n}", "{n} Island", "{n} vs. {n2}", "{a} {n} Party", "Return of the {n}", "{n} Tycoon", "{a} {n} Racing"],
+  fanFirst: ["Gamer", "Pixel", "Llama", "Speedy", "Retro", "Boss", "Coin", "Noob", "Jump", "Turbo", "Ninja", "Star", "Dragon",
+    "Mega", "Lucky", "Super", "Cosmic", "Epic", "Happy", "Sneaky", "Combo", "Quest", "Robo", "Moon", "Taco", "Banana"],
+  fanSecond: ["Kid", "Pal", "Fan", "Runner", "Rita", "Battler", "Collector", "Master", "Queen", "King", "Hero", "Wizard", "Ace",
+    "Champ", "Buddy", "Legend", "Hunter", "Jumper", "Dude", "Star", "Fox", "Cat", "Pro", "Boss"],
 };

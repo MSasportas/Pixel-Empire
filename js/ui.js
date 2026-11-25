@@ -22,10 +22,30 @@ function fmt(n) {
 }
 function money(n) { return "$" + fmt(n); }
 
-// A number per second. Tiny amounts show as "<1" instead of decimals.
-function rate(n) {
-  if (n > 0 && n < 0.5) return "<1";
-  return fmt(n);
+// A rate as a whole number. If it's less than 1 a second, it's shown per
+// minute, or per hour, so it never needs decimals: "12/s", "40/min", "3/hr".
+function perTime(n) {
+  n = n || 0;
+  if (n <= 0 || n >= 0.5) return fmt(n) + "/s";
+  if (n * 60 >= 0.5) return fmt(n * 60) + "/min";
+  return fmt(Math.max(1, n * 3600)) + "/hr";
+}
+
+// How much bigger "after" is than "before", as a whole percent ("+12%").
+function pct(before, after) {
+  if (!(before > 0)) return 0;
+  const p = (after / before - 1) * 100;
+  return p > 0 ? Math.max(1, Math.round(p)) : 0;
+}
+
+// "+12% players and fans" for the Store.
+function pctLine(a, b) {
+  const pp = pct(a.players, b.players), pf = pct(a.fans, b.fans);
+  if (pp === pf) return '<span class="gain cyan">+' + pp + "% players and fans</span>";
+  const parts = [];
+  if (pp) parts.push('<span class="gain cyan">+' + pp + "% players</span>");
+  if (pf) parts.push('<span class="gain yellow">+' + pf + "% fans</span>");
+  return parts.join(" ");
 }
 
 // Stars like ★★★½, drawn with CSS so half stars look right.
@@ -85,21 +105,12 @@ function fmtClock(seconds) {
 
 // Money per second.
 function moneyRate(n) {
-  return "$" + rate(n) + "/s";
+  return "$" + perTime(n);
 }
 
 // Money, players and fans per second, in their colors.
 function ratesHtml(r) {
-  return '<span class="pink">' + moneyRate(r.money) + '</span> · <span class="cyan">' + rate(r.players) + ' players/s</span> · <span class="yellow">' + rate(r.fans) + " fans/s</span>";
-}
-
-// A small "+12 players/s" style line for the Store.
-function gainLine(gain, what) {
-  const parts = [];
-  if (what.includes("players")) parts.push('<span class="gain cyan">+' + rate(gain.players) + " players/s</span>");
-  if (what.includes("fans")) parts.push('<span class="gain yellow">+' + rate(gain.fans) + " fans/s</span>");
-  if (what.includes("money")) parts.push('<span class="gain pink">+' + moneyRate(gain.money) + "</span>");
-  return parts.join(" ");
+  return '<span class="pink">' + moneyRate(r.money) + '</span> · <span class="cyan">' + perTime(r.players).replace("/", " players/") + '</span> · <span class="yellow">' + perTime(r.fans).replace("/", " fans/") + "</span>";
 }
 
 // Real time, like "45 sec", "6 min" or "2 hr 10 min".
@@ -316,15 +327,15 @@ const UI = {
     $("hud-money").textContent = money(state.money);
     $("hud-money-rate").textContent = "+" + moneyRate(r.money);
     $("hud-players").textContent = fmt(state.playersTotal);
-    $("hud-players-rate").textContent = "+" + rate(r.players) + "/s";
+    $("hud-players-rate").textContent = "+" + perTime(r.players);
     $("hud-fans").textContent = fmt(state.fans);
     $("hud-time").textContent = fmtDate(state.day);
     // A star on Games when a sequel is ready, and NEW on the Store.
-    const sequelReady = state.released.some(g => { const i = sequelInfo(state, g); return i.ready && !i.made && i.bonus >= 0.3; });
+    const sequelReady = state.released.some(g => { const i = sequelInfo(state, g); return i.ready && !i.made; });
     const gamesHtml = "Games (" + state.released.length + ")" + (sequelReady ? ' <span class="badge star sym">★</span>' : "");
     if ($("btn-games").innerHTML !== gamesHtml) $("btn-games").innerHTML = gamesHtml;
     $("store-badge").classList.toggle("hidden", newUnlocks(state, "store").length === 0);
-    $("hud-fans-rate").textContent = "+" + rate(r.fans) + "/s";
+    $("hud-fans-rate").textContent = "+" + perTime(r.fans);
     $("hud-level").textContent = lv.current.name;
     if (lv.next) {
       const frac = (state.fans - lv.current.fans) / (lv.next.fans - lv.current.fans);
@@ -442,6 +453,11 @@ const UI = {
       html = '<h2>Level up!</h2><p>' + esc(state.studioName) + ' is now a <b>' + l.name + '</b>!</p>' +
         (list ? '<p>You unlocked:</p><ul class="unlocks">' + list + "</ul>" : "") +
         (newUnlocks(state, "store").length ? '<p class="muted">Look for <span class="new-tag">NEW</span> in the Store.</p>' : "");
+    } else if (c.type === "event") {
+      const r = c.data;
+      html = '<h2>' + esc(r.event) + '!</h2><p>Everyone loved playing <b>' + esc(r.game) + '</b>. It\'s selling like it just came out!</p>' +
+        '<div class="away-grid"><div>Players now</div><b>' + perTime(r.rateAfter) + '</b><div>Before the show</div><b class="muted">' + perTime(r.rateBefore) + '</b></div>' +
+        '<p>Over the next game year, that adds about:</p><div class="away-grid"><div>Players</div><b>+' + fmt(r.players) + '</b><div>Money</div><b>+' + money(r.money) + '</b><div>Fans</div><b>+' + fmt(r.fans) + '</b></div>';
     } else if (c.type === "win") {
       html = '<h2>AAA Studio!</h2><p>' + esc(state.studioName) + ' reached ' + fmt(CONFIG.winFans) + ' fans. You made it from one desk to a AAA studio!</p>' +
         '<p>You can keep playing, or found a new studio that works ' + Math.round((state.legacy + 1) * CONFIG.legacySpeedBonus * 100) + '% faster.</p>' +
@@ -534,7 +550,7 @@ const UI = {
   newForm(sequelOf) {
     this.lastHint = null;
     this.form = {
-      name: pickRandom(CONFIG.gameNameIdeas),
+      name: randomGameName(),
       genre: null,
       price: "p5",
       features: state.features.slice(),
@@ -658,7 +674,7 @@ const UI = {
   panel_section(p) {
     const step = byId(CONFIG.steps, p.step);
     const stepIndex = CONFIG.steps.indexOf(step);
-    let html = '<p class="about">' + STEP_ABOUT[step.id] + (step.minigame ? ' <span class="muted">Every game here can be sped up once with a mini-game, even when someone else is working on it.</span>' : "") + '</p>';
+    let html = '<p class="about">' + STEP_ABOUT[step.id] + (step.minigame ? ' <span class="muted">Every game here can be sped up once with a mini-game, even when someone else is working on it. The step waits while you play.</span>' : "") + '</p>';
     const here = state.projects.filter(x => x.step === stepIndex);
     if (here.length === 0) html += '<p class="muted">No games here right now.</p>';
     for (const g of here) {
@@ -726,7 +742,7 @@ const UI = {
     const usual = usualGame(state);
     const usualName = usual.name ? esc(usual.name) : "a $5 Action game";
     if (tab === "skills") {
-      html += '<p class="muted">You get better with every game you make. Training makes you better faster. Each skill matters most for its own genres, and a little for every game. Numbers show what the next level adds at launch.</p>';
+      html += '<p class="muted">You get better with every game you make. Training makes you better faster. Each skill matters most for its own genres, and a little for every game. Numbers show how much more a new game would get at launch.</p>';
       for (const s of CONFIG.skills) {
         const sk = state.skills[s.id];
         const extra = s.id === "engines" ? " (+" + bestEngine(state).power + " from " + bestEngine(state).name + ")" : "";
@@ -735,12 +751,14 @@ const UI = {
         const genre = genres[0];
         const game = Object.assign({}, usual, genre ? { genre: genre.id } : {});
         const before = previewLaunch(state, game);
-        const gain = previewChange(state, game, () => { sk.level += 1; }, () => { sk.level -= 1; });
-        sk.level += 1; const starsAfter = previewLaunch(state, game).stars; sk.level -= 1;
+        sk.level += 1; const after = previewLaunch(state, game); sk.level -= 1;
         const forWhat = genre ? genres.map(g => g.name).join(", ") + " games" : "every game";
-        const starText = starsAfter > before.stars ? " " + starsHtml(before.stars) + " → " + starsHtml(starsAfter) : "";
-        html += '<div class="item"><div class="item-main"><b style="color:' + s.color + '">' + s.name + "</b> level " + sk.level + extra +
-          bar(sk.xp / xpNeeded(sk.level), s.color) + '<div class="gains">Next level, ' + forWhat + ": " + gainLine(gain, ["players", "fans"]) + starText + "</div></div>" +
+        const starText = after.stars > before.stars ? " " + starsHtml(before.stars) + " → " + starsHtml(after.stars) : "";
+        // Practice: you also level up by making games. This shows how close you are.
+        const practice = Math.floor(sk.xp / xpNeeded(sk.level) * 100);
+        html += '<div class="item"><div class="item-main"><b style="color:' + s.color + '">' + s.name + '</b> <span class="skill-level" style="color:' + s.color + '">Level ' + sk.level + "</span>" + extra +
+          '<div class="muted small">Practice from making games: ' + practice + "% of the way to level " + (sk.level + 1) + "</div>" +
+          '<div class="gains">Level ' + (sk.level + 1) + ", " + forWhat + ": " + pctLine(before, after) + starText + "</div></div>" +
           costButton("train", 'data-id="' + s.id + '"', trainCost(state, s.id), "Train") + "</div>";
       }
     }
@@ -752,14 +770,15 @@ const UI = {
         else right = costButton("learn", 'data-id="' + e.id + '"', e.cost, "Learn");
         let gainHtml = "";
         if (!state.engines.includes(e.id) && e.power > bestEngine(state).power) {
-          const gain = previewChange(state, usual, () => state.engines.push(e.id), () => state.engines.pop());
-          gainHtml = '<div class="gains">Adds ' + gainLine(gain, ["players", "fans"]) + "</div>";
+          const a = previewLaunch(state, usual);
+          state.engines.push(e.id); const b = previewLaunch(state, usual); state.engines.pop();
+          gainHtml = '<div class="gains">Every game: ' + pctLine(a, b) + "</div>";
         }
         html += '<div class="item"><div class="item-main"><b>' + e.name + "</b>" + newTag(this.isShownNew("engine", e.id)) + " <span class=\"muted\">+" + e.power + " Engines</span><div>Good for: " + e.good + "</div>" + gainHtml + "</div>" + right + "</div>";
       }
     }
     if (tab === "features") {
-      html += '<p class="muted">Numbers show what each feature adds at launch to a game like ' + usualName + ".</p>";
+      html += '<p class="muted">Numbers show how much more a game gets when you tick the feature.</p>';
       for (const f of CONFIG.features) {
         let right;
         if (state.features.includes(f.id)) right = '<span class="owned">Owned</span>';
@@ -768,8 +787,7 @@ const UI = {
         const without = Object.assign({}, usual, { features: usual.features.filter(x => x !== f.id) });
         const withIt = Object.assign({}, without, { features: without.features.concat([f.id]) });
         const a = previewLaunch(state, without), b = previewLaunch(state, withIt);
-        const gain = { players: b.players - a.players, fans: b.fans - a.fans, money: b.money - a.money };
-        const what = f.fade > 1 ? '<div class="gains">Sales fade ' + f.fade + " times slower</div>" : '<div class="gains">Adds ' + gainLine(gain, gain.players >= 0.5 ? ["players", "fans"] : ["fans"]) + "</div>";
+        const what = f.fade > 1 ? '<div class="gains">Sales fade ' + f.fade + " times slower</div>" : '<div class="gains">' + pctLine(a, b) + "</div>";
         html += '<div class="item"><div class="item-main"><b>' + f.name + "</b>" + newTag(this.isShownNew("feature", f.id)) + "<div>" + f.hint + "</div>" + what + "</div>" + right + "</div>";
       }
     }
@@ -820,7 +838,7 @@ const UI = {
     }
     html += "<h3>Released (" + state.released.length + ") · " + ratesHtml(allRates()) + "</h3>";
     if (!state.released.length) html += '<p class="muted">No games out yet.</p>';
-    else html += '<p class="muted small">When a game has been out for ' + fmtDays(CONFIG.sequelAfterDays) + ', you can make a sequel. Games that won lots of fans give their sequel a bigger launch.</p>';
+    else html += '<p class="muted small">Only hits get sequels. When a game has been out for ' + fmtDays(CONFIG.hitCheckDays) + ', fans decide: if it won a lot more fans than your last ' + CONFIG.hitCompareGames + ' games, it\'s a HIT and you can make a sequel. Bigger hits give sequels a bigger launch.</p>';
     for (const g of state.released.slice(0, 40)) {
       const genre = byId(CONFIG.genres, g.genre), price = byId(CONFIG.prices, g.price);
       const size = byId(CONFIG.sizes, g.size || "small").label;
@@ -830,9 +848,10 @@ const UI = {
       const seq = sequelInfo(state, g);
       let right = "";
       if (seq.made) right = '<span class="muted small">Sequel made</span>';
-      else if (!seq.ready) right = '<span class="muted small">Sequel in ' + fmtDays(seq.daysLeft) + "</span>";
-      else right = '<button class="btn small' + (seq.bonus >= 0.3 ? " glow" : " ghost") + '" data-act="sequel" data-id="' + g.id + '"><span class="sym">★</span> Create sequel<br>+' + Math.round(seq.bonus * 100) + "% players</button>";
-      html += '<div class="item"><div class="item-main"><b>' + esc(g.name) + "</b> " + (g.stars ? starsHtml(g.stars) : "") + (g.bugs ? " 🐞" : "") + ' <span class="muted">' + genre.name + " · " + size + " · " + price.label + "</span>" +
+      else if (!seq.judged) right = '<span class="muted small">Hit check in<br>' + fmtDays(seq.daysLeft) + "</span>";
+      else if (!seq.hit) right = '<span class="muted small">Not a hit</span>';
+      else right = '<button class="btn small glow" data-act="sequel" data-id="' + g.id + '"><span class="sym">★</span> Create sequel<br>+' + Math.round(seq.bonus * 100) + "% players</button>";
+      html += '<div class="item"><div class="item-main"><b>' + esc(g.name) + "</b> " + (g.hit ? '<span class="hit-tag">HIT</span> ' : "") + (g.stars ? starsHtml(g.stars) : "") + (g.bugs ? " 🐞" : "") + ' <span class="muted">' + genre.name + " · " + size + " · " + price.label + "</span>" +
         "<div>Now: " + ratesHtml(gameRates(g)) + "</div>" +
         '<div>So far: <span class="cyan">' + fmt(g.players) + ' players</span> · <span class="pink">' + money(g.money || 0) + '</span> · <span class="yellow">' + fmt(g.fans || 0) + " fans</span></div>" +
         '<div class="muted">Out for ' + fmtDays(g.days !== undefined ? g.days : secondsToDays(g.age)) + " · Launched " + fmtDate(g.launchDay || 0) + " · " + stageText + "</div></div>" + right + "</div>";
@@ -962,7 +981,7 @@ const UI = {
         break;
 
       // Making a game
-      case "form-random-name": this.form.name = pickRandom(CONFIG.gameNameIdeas); this.renderPanel(); break;
+      case "form-random-name": this.form.name = randomGameName(); this.renderPanel(); break;
       case "form-genre": this.form.name = $("game-name").value; this.form.genre = data.id; Sound.play("click"); this.renderPanel(); break;
       case "form-price": this.form.name = $("game-name").value; this.form.price = data.id; Sound.play("click"); this.renderPanel(); break;
       case "form-size": this.form.name = $("game-name").value; this.form.size = data.id; Sound.play("click"); this.renderPanel(); break;
@@ -976,7 +995,7 @@ const UI = {
         break;
       }
       case "form-start": {
-        const nameValue = $("game-name").value.trim() || pickRandom(CONFIG.gameNameIdeas);
+        const nameValue = $("game-name").value.trim() || randomGameName();
         if (startNewGame(s, { name: nameValue.slice(0, 28), genre: this.form.genre, price: this.form.price, features: this.form.features, size: this.form.size, sequelOf: this.form.sequelOf })) {
           Sound.play("step");
           this.form = null;
@@ -993,11 +1012,13 @@ const UI = {
         const p = s.projects.find(x => x.id === data.id);
         if (!p || !canSpeedUp(s, p)) break;
         p.boostUsed = true;
+        p.playing = true;                  // the step waits for you while you play
         const stepNow = p.step;
         const stepDone = () => !state || !state.projects.includes(p) || p.step !== stepNow || !p.worker;
         Minigames.start(CONFIG.steps[stepNow].minigame, p,
           stepDone,
           score => {                       // score: 0 to 1
+            p.playing = false;
             if (!stepDone()) applyMinigame(state, p.id, score);
             if (this.panel) this.renderPanel();
           });
@@ -1023,7 +1044,15 @@ const UI = {
       case "supply": upgradeSupply(s, data.id) ? ok() : no(); this.renderPanel(); break;
 
       // Conventions
-      case "show-game": if (acceptEvent(s, data.id)) { Office.celebrate(); Sound.play("launch"); this.closePanel(); } break;
+      case "show-game": {
+        const result = acceptEvent(s, data.id);
+        if (result) {
+          Office.celebrate(); Sound.play("launch"); this.closePanel();
+          this.cards.push({ type: "event", data: result });
+          this.showNextCard();
+        }
+        break;
+      }
       case "decline-event": declineEvent(s); break;
       case "new-legacy": {
         const legacy = s.legacy + 1;
