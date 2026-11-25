@@ -15,6 +15,14 @@ function startPixelEmpire() {
   Office.init(document.getElementById("office"));
   Office.fit();
   window.addEventListener("resize", () => Office.fit());
+  // When the top bar or the guide changes size (like a new tip popping
+  // up on a phone), make the office fit again.
+  if (window.ResizeObserver) {
+    const watcher = new ResizeObserver(() => Office.fit());
+    watcher.observe(document.getElementById("hud-top"));
+    watcher.observe(document.getElementById("topcenter"));
+    document.querySelectorAll(".hud-box").forEach(box => watcher.observe(box));
+  }
   UI.init();
   UI.showTitle();
 

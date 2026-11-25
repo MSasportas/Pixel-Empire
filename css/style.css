@@ -21,6 +21,7 @@
 html, body {
   margin: 0;
   touch-action: manipulation; /* no double-tap zoom on phones */
+  -webkit-tap-highlight-color: transparent; /* no gray flash when you tap */
   height: 100%;
   background: var(--bg);
   color: var(--text);
@@ -406,27 +407,232 @@ ul.unlocks li { margin: 2px 0; }
   .hud-box.tr { min-width: 150px; }
 }
 
-/* ----- Phones -----
-   The office shrinks to fit, the HUD boxes get compact, and panels
-   use the whole screen. */
+/* The More button and the dark screen behind its menu are only for phones. */
+#btn-more, #nav-scrim { display: none; }
+
+/* =====================================================================
+   PHONES
+   Office.fit() (in office.js) puts the class "phone" on the page when
+   the screen is a phone, and "tall" when the phone is held upright.
+   Then:
+   - the corner boxes become one slim bar at the top (#hud-top),
+   - "Make a game" and "More" sit at the bottom (#hud-nav),
+   - the other buttons hide in the More menu, which slides up,
+   - pop-up panels fill the whole screen.
+   "env(safe-area-inset-...)" keeps things away from the iPhone notch
+   and the home bar.
+   ===================================================================== */
+
+/* The corner boxes stop being boxes: their insides join the bars. */
+body.phone .hud-box { display: contents; }
+
+/* ----- The top bar ----- */
+body.phone #hud-top {
+  position: fixed; top: 0; left: 0; right: 0; z-index: 10;
+  display: grid; grid-template-columns: 1fr 1fr; gap: 2px 14px;
+  grid-template-areas:
+    "money   fans"
+    "level   goal"
+    "players date";
+  padding: calc(env(safe-area-inset-top) + 6px) calc(env(safe-area-inset-right) + 12px) 6px calc(env(safe-area-inset-left) + 12px);
+  background: rgba(15, 8, 32, 0.94);
+  border-bottom: 2px solid rgba(46, 230, 255, 0.55);
+  box-shadow: 0 2px 14px rgba(46, 230, 255, 0.18);
+  font-size: 16px; line-height: 1.2;
+}
+body.phone #hud-top > * > * { min-width: 0; white-space: nowrap; overflow: hidden; }
+/* Each line is label, number, rate. When numbers get huge, the rate
+   gets cut short ("+$12…") so the number itself always fits. */
+body.phone #hud-top .hud-line { display: flex; align-items: baseline; gap: 5px; }
+body.phone #hud-top .hud-line > * { flex-shrink: 0; }
+body.phone #hud-top .hud-rate { flex-shrink: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+body.phone .h-money   { grid-area: money; }
+body.phone .h-fans    { grid-area: fans; justify-content: flex-end; }
+body.phone .h-levelrow { grid-area: level; display: flex; align-items: center; gap: 6px; }
+body.phone .hud-goal  { grid-area: goal; }
+body.phone .h-players { grid-area: players; }
+body.phone .h-date    { grid-area: date; justify-content: flex-end; }
+body.phone .h-money .hud-label, body.phone .h-date .hud-label { display: none; }  /* "$" and the date speak for themselves */
+body.phone .hud-line b { font-size: 10px; }
+body.phone .h-players b { font-size: 9px; }
+body.phone .hud-rate { font-size: 14px; }
+body.phone .h-level b { font-size: 8px; color: var(--cyan); }
+body.phone .h-levelrow .bar, body.phone .hud-goal .bar { flex: 1; margin-top: 0; min-width: 30px; }
+body.phone .hud-goal .hud-small { font-size: 14px; margin: 0; }
+body.phone .h-players, body.phone .h-date { font-size: 15px; }
+body.phone #hud-level-next { display: none; }
+
+/* ----- The bottom bar: "Make a game" and "More" ----- */
+body.phone #hud-nav {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 12;
+  display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px;
+  grid-template-areas: "make make more";
+  padding: 8px calc(env(safe-area-inset-right) + 10px) calc(env(safe-area-inset-bottom) + 8px) calc(env(safe-area-inset-left) + 10px);
+  background: #0f0820;
+  border-top: 2px solid rgba(46, 230, 255, 0.55);
+  box-shadow: 0 -2px 14px rgba(46, 230, 255, 0.18);
+}
+body.phone #hud-nav .btn { margin: 0; min-height: 48px; position: relative; }
+body.phone #btn-make { grid-area: make; font-size: 12px; }
+body.phone #btn-more { grid-area: more; display: block; font-size: 10px; white-space: nowrap; padding: 6px 4px; }
+/* A little arrow on More: up when closed, down when open */
+body.phone #btn-more::after {
+  content: ""; display: inline-block; margin-left: 8px; vertical-align: 1px;
+  border: 5px solid transparent; border-bottom-color: var(--cyan); border-top-width: 0;
+}
+body.phone #hud-nav.open #btn-more::after { border-bottom-width: 0; border-top-width: 5px; border-top-color: var(--cyan); border-bottom-color: transparent; }
+body.phone #hud-nav.open #btn-more { background: rgba(46, 230, 255, 0.15); }
+/* The yellow dot: something new is inside the More menu */
+.more-dot {
+  position: absolute; top: -5px; right: -5px; width: 12px; height: 12px;
+  background: var(--yellow); border: 2px solid var(--bg);
+  box-shadow: 0 0 8px var(--yellow);
+}
+body.phone #hud-nav.open .more-dot { display: none; }
+
+/* ----- The More menu ----- */
+/* Closed: only Make a game and More show. */
+body.phone #hud-nav .btn[data-name]:not(#btn-make) { display: none; }
+/* Open: the other buttons show as big tiles above them. */
+body.phone #hud-nav.open {
+  grid-template-areas:
+    "store games    team"
+    "mail  trophies menu"
+    "make  make     more";
+  border-top-color: var(--cyan);
+}
+body.phone #hud-nav.open .btn[data-name]:not(#btn-make) {
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px;
+  min-height: 64px; font-size: 9px; padding: 8px 4px;
+  animation: sheet-in 0.18s ease-out both;
+}
+body.phone #hud-nav .btn[data-name="store"]    { grid-area: store; }
+body.phone #hud-nav .btn[data-name="games"]    { grid-area: games; }
+body.phone #hud-nav .btn[data-name="team"]     { grid-area: team; }
+body.phone #hud-nav .btn[data-name="mail"]     { grid-area: mail; animation-delay: 0.04s; }
+body.phone #hud-nav .btn[data-name="trophies"] { grid-area: trophies; animation-delay: 0.04s; }
+body.phone #hud-nav .btn[data-name="menu"]     { grid-area: menu; animation-delay: 0.04s; }
+/* A picture on each tile, so it's easy to find */
+body.phone #hud-nav .btn[data-name]::before { font-family: var(--body-font), sans-serif; font-size: 24px; line-height: 1; }
+body.phone #hud-nav .btn[data-name="store"]::before    { content: "🛒"; }
+body.phone #hud-nav .btn[data-name="games"]::before    { content: "🎮"; }
+body.phone #hud-nav .btn[data-name="team"]::before     { content: "👥"; }
+body.phone #hud-nav .btn[data-name="mail"]::before     { content: "📬"; }
+body.phone #hud-nav .btn[data-name="trophies"]::before { content: "🏆"; }
+body.phone #hud-nav .btn[data-name="menu"]::before     { content: "⚙️"; }
+body.phone #btn-make::before { content: none; }
+/* Badges sit in the tile's corner */
+body.phone #hud-nav .badge { position: absolute; top: 4px; right: 4px; margin: 0; }
+@keyframes sheet-in { from { transform: translateY(14px); opacity: 0; } }
+
+/* The dark screen behind the open menu. Tapping it closes the menu. */
+body.phone #nav-scrim.on {
+  display: block; position: fixed; inset: 0; z-index: 11;
+  background: rgba(5, 2, 12, 0.6);
+}
+
+/* On a bigger upright screen (like a tablet), keep the bars from
+   stretching too wide: they stay in the middle. */
+body.phone.tall #hud-top {
+  padding-left: max(calc(env(safe-area-inset-left) + 12px), calc(50% - 320px));
+  padding-right: max(calc(env(safe-area-inset-right) + 12px), calc(50% - 320px));
+}
+body.phone.tall #hud-nav {
+  padding-left: max(calc(env(safe-area-inset-left) + 10px), calc(50% - 280px));
+  padding-right: max(calc(env(safe-area-inset-right) + 10px), calc(50% - 280px));
+}
+
+/* ----- Phone held sideways: one bar at the top, buttons on the right ----- */
+body.phone:not(.tall) #hud-top {
+  right: calc(env(safe-area-inset-right) + 250px);
+  grid-template-columns: 1fr 1fr 1fr;
+  grid-template-areas:
+    "money   fans level"
+    "players date goal";
+  padding-right: 10px; border-right: 2px solid rgba(46, 230, 255, 0.55);
+}
+body.phone:not(.tall) .h-fans, body.phone:not(.tall) .h-date { justify-content: flex-start; }
+body.phone:not(.tall) #hud-nav {
+  top: 0; bottom: auto; left: auto; width: calc(env(safe-area-inset-right) + 250px);
+  padding: calc(env(safe-area-inset-top) + 6px) calc(env(safe-area-inset-right) + 8px) 6px 8px;
+  border-top: none; border-bottom: 2px solid rgba(46, 230, 255, 0.55);
+  gap: 6px;
+}
+body.phone:not(.tall) #hud-nav .btn { min-height: 40px; }
+body.phone:not(.tall) #hud-nav.open {
+  grid-template-areas:
+    "make  make     more"
+    "store games    team"
+    "mail  trophies menu";
+}
+/* Sideways, the menu drops down, so the arrow points the other way */
+body.phone:not(.tall) #btn-more::after { border-bottom-width: 0; border-top-width: 5px; border-top-color: var(--cyan); border-bottom-color: transparent; }
+body.phone:not(.tall) #hud-nav.open #btn-more::after { border-top-width: 0; border-bottom-width: 5px; border-bottom-color: var(--cyan); border-top-color: transparent; }
+
+body.phone:not(.tall) #office-wrap {
+  padding: 0 env(safe-area-inset-right) max(4px, env(safe-area-inset-bottom)) env(safe-area-inset-left);
+}
+
+/* ----- The guide and messages: full width, under the top bar ----- */
+body.phone #topcenter {
+  left: calc(env(safe-area-inset-left) + 8px); right: calc(env(safe-area-inset-right) + 8px);
+  width: auto; transform: none; gap: 4px;
+}
+body.phone .guide, body.phone .toast { font-size: 17px; line-height: 1.15; padding: 6px 10px; }
+/* Invite buttons go on their own line under the words */
+body.phone .toast { display: flex; flex-wrap: wrap; justify-content: center; align-items: center; column-gap: 6px; }
+body.phone .toast .btn { margin: 4px 2px 0; padding: 9px 10px; }
+
+/* ----- Pop-up panels fill the whole screen ----- */
+body.phone #panel { align-items: stretch; }
+body.phone .panel-main {
+  width: 100%; height: 100%; max-height: none;
+  border-width: 0; box-shadow: none;
+  padding: calc(env(safe-area-inset-top) + 6px) calc(env(safe-area-inset-right) + 12px) calc(env(safe-area-inset-bottom) + 10px) calc(env(safe-area-inset-left) + 12px);
+}
+body.phone .panel-head { flex-shrink: 0; gap: 8px; }
+body.phone .panel-head h2 { font-size: 12px; line-height: 1.4; }
+/* A big X that's easy to tap */
+body.phone .panel-head [data-act="close"] { min-width: 44px; min-height: 44px; font-size: 12px; flex-shrink: 0; }
+body.phone .panel-body { flex: 1; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; overflow-x: hidden; }
+body.phone .panel-body .btn { min-height: 40px; }
+body.phone .tab { min-height: 40px; }
+body.phone .choice { min-height: 40px; }
+body.phone .item { flex-wrap: wrap; }
+body.phone input, body.phone textarea { max-width: 100%; font-size: 20px; }
+body.phone .card-box { margin: auto; max-height: 92%; overflow-y: auto; }
+body.phone .card-box .btn { min-height: 44px; }
+
+/* ----- Mini-games on phones ----- */
+/* The mini-game sits near the top, so the keyboard can't hide the code. */
+body.phone #minigame { align-items: flex-start; overflow-y: auto; }
+body.phone .mg-box {
+  width: 100%; min-height: 100%; border-width: 0;
+  display: flex; flex-direction: column;
+  padding: calc(env(safe-area-inset-top) + 8px) calc(env(safe-area-inset-right) + 10px) calc(env(safe-area-inset-bottom) + 10px) calc(env(safe-area-inset-left) + 10px);
+}
+body.phone .mg-top h2 { font-size: 12px; margin: 4px 0; }
+body.phone .mg-stats { font-size: 18px; }
+/* The play area fills the rest of the screen */
+body.phone .mg-arena { height: auto; flex: 1; min-height: 260px; }
+body.phone .mg-code { margin: 24px 8px 18px; }
+body.phone .mg-input { max-width: 100%; }
+body.phone .mg-word { margin: 30px 0 20px; }
+body.phone .mg-target { margin: 20px 0; }
+body.phone .mg-cards { padding: 0 4px; gap: 6px; }
+body.phone .mg-pads { padding: 0 8px; }
+body.phone .mg-pad { padding: 40px 6px; }
+/* Games with buttons sit in the middle of the play area */
+body.phone .mg-arena:has(.mg-choices, .mg-pads, .mg-cards) { display: flex; flex-direction: column; justify-content: center; }
+body.phone .mg-block { font-size: 13px; padding: 16px 18px; }
+body.phone .mg-thing { font-size: 40px; padding: 6px; }   /* bigger bugs for fingers */
+
+/* ----- Title and character screens scroll if the phone is short ----- */
+body.phone .screen { overflow-y: auto; align-items: flex-start; }
+body.phone .title-box, body.phone .create-box { margin: auto; }
+
+/* ----- Narrow screens without a game going (title, character) ----- */
 @media (max-width: 760px) {
   html, body { font-size: 18px; }
-  .hud-box { padding: 4px 6px; font-size: 14px; }
-  .hud-box.tl { top: 4px; left: 4px; max-width: 48vw; }
-  .hud-box.tr { top: 4px; right: 4px; min-width: 0; width: 48vw; }
-  .hud-box.bl, .hud-box.br { left: 4px; right: 4px; padding: 2px; display: flex; flex-wrap: wrap; justify-content: center; }
-  .hud-box.br { bottom: 4px; }
-  .hud-box.bl { bottom: 44px; }
-  #hud-level-next { display: none; }
-  #topcenter { width: calc(100vw - 16px); }
-  .panel-main { width: 100vw; max-height: 100%; height: 100%; }
-  .overlay { align-items: stretch; }
-  .card-box { margin: auto; }
-  .mg-arena { height: 50vh; }
-}
-@media (max-width: 960px) and (orientation: landscape) {
-  .hud-box.tl, .hud-box.tr { width: auto; max-width: 40vw; }
-  .hud-box.bl { bottom: 4px; left: 4px; right: auto; }
-  .hud-box.br { bottom: 4px; right: 4px; left: auto; }
-  .hud-line:nth-child(3) { display: none; }
+  .create-box { width: 100vw; max-height: 100%; height: 100%; }
 }
