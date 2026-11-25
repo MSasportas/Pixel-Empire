@@ -3,6 +3,12 @@
 //  Run it with:   node tools/balance-test.js
 //  It prints how long (in play time) each studio level takes, so you
 //  can check if the numbers in js/config.js feel right.
+//
+//  Options (all optional):
+//    node tools/balance-test.js <player> <overrides> <stopHours>
+//    player:    "good" (plays every mini-game, makes the biggest games,
+//               makes sequels) or "casual" (no mini-games, medium games)
+//    overrides: JSON to try other numbers, like '{"basePeak":10}'
 // =====================================================================
 const fs = require("fs");
 const path = require("path");
@@ -17,32 +23,39 @@ for (const f of ["config.js", "game.js"]) {
 vm.runInContext("this.CONFIG = CONFIG;", ctx);
 const G = ctx;
 const CONFIG = ctx.CONFIG;
-// Optional: try different numbers without editing config.js, e.g.
-//   node tools/balance-test.js 3 '{"basePeak":0.2}'
+const PLAYER = process.argv[2] || "good";
 if (process.argv[3]) Object.assign(CONFIG, JSON.parse(process.argv[3]));
+const STOP_HOURS = Number(process.argv[4] || 30);
+const GOOD = PLAYER === "good";
 
-// The robot plays like a person: it waits before clicking a waiting step
-// (CLICK_DELAY seconds), thinks before starting a new game (THINK seconds)
-// and goes shopping once a minute.
-const CLICK_DELAY = Number(process.argv[2] || 20);
-const THINK = 30;
-let think = 0;
+// How a person plays:
+const CLICK_DELAY = GOOD ? 10 : 30;  // seconds before clicking a waiting step
+const THINK = GOOD ? 20 : 45;        // seconds to set up a new game
+const SHOP_EVERY = GOOD ? 60 : 180;  // how often they go shopping
+const MG_SECONDS = { ideas: 20, code: 30, blocks: 20, bugs: 15 };
+const MG_SCORE = 0.8;                // average mini-game score (a few mistakes)
+
 const state = G.newGameState("Robot Studio", 0, null);
-let wait = 0;
+let wait = 0, think = 0, busyUntil = 0;
 let lastLevel = 1;
 const report = [];
 
 function bestGenre() {
   const options = CONFIG.genres.filter(g => G.isUnlocked(state, g) && g.id !== state.lastGenre);
-  options.sort((a, b) => G.skillValue(state, b.skill) * b.pop - G.skillValue(state, a.skill) * a.pop);
+  if (!GOOD) return options[Math.floor(Math.random() * options.length)].id;
+  options.sort((a, b) => G.genreStars(state, b.id) * b.pop - G.genreStars(state, a.id) * a.pop);
   return options[0].id;
 }
 function bestPrice() {
   const unlocked = CONFIG.prices.filter(p => G.isUnlocked(state, p));
   return unlocked[Math.min(2, unlocked.length - 1)].id; // usually $5
 }
+function bestSize() {
+  const sizes = CONFIG.sizes.filter(z => G.isUnlocked(state, z));
+  if (GOOD) return sizes[sizes.length - 1].id;
+  return sizes[sizes.length - 1].id;
+}
 function shop() {
-  // Buy the cheapest useful thing, a few times.
   for (let i = 0; i < 5; i++) {
     const options = [];
     for (const e of CONFIG.engines) if (!state.engines.includes(e.id) && G.isUnlocked(state, e)) options.push([e.cost, () => G.learnEngine(state, e.id)]);
@@ -58,37 +71,67 @@ function shop() {
   }
 }
 
-const dt = 1;
-let t = 0;
-// Optional third number: stop after this many hours (to test a week away mid-game).
-const STOP_HOURS = Number(process.argv[4] || 20);
-for (; t < STOP_HOURS * 3600; t += dt) {
-  think -= dt;
-  if (state.projects.length < G.maxProjects(state) && think <= 0) {
-    const sizes = CONFIG.sizes.filter(z => G.isUnlocked(state, z));
-    G.startNewGame(state, { name: "Game " + t, genre: bestGenre(), price: bestPrice(), features: state.features, size: sizes[sizes.length - 1].id });
+let t = 0, minigames = 0, sequels = 0;
+for (; t < STOP_HOURS * 3600; t += 1) {
+  const free = t >= busyUntil;
+  think -= 1;
+  if (free && state.projects.length < G.maxProjects(state) && think <= 0) {
+    // A good player makes a sequel when a game did well.
+    let made = false;
+    if (GOOD) {
+      const best = state.released.map(g => [g, G.sequelInfo(state, g)]).filter(x => x[1].ready && !x[1].made && x[1].bonus >= 0.5)
+        .sort((a, b) => b[1].bonus - a[1].bonus)[0];
+      if (best) {
+        made = G.startNewGame(state, { name: best[1].name, sequelOf: best[0].id, price: best[0].price, features: state.features, size: bestSize() });
+        if (made) sequels++;
+      }
+    }
+    if (!made) G.startNewGame(state, { name: "Game " + t, genre: bestGenre(), price: bestPrice(), features: state.features, size: bestSize() });
     think = THINK;
   }
-  wait -= dt;
-  if (!state.you.projectId && wait <= 0) {
+  wait -= 1;
+  if (free && !state.you.projectId && wait <= 0) {
     const p = state.projects.find(x => !x.worker);
     if (p) { G.youStartStep(state, p.id); wait = CLICK_DELAY; }
   }
-  G.tick(state, dt, true);
-  if (t % 60 === 0) shop();
+  // A good player plays a mini-game on any step that can be sped up.
+  if (GOOD && t >= busyUntil) {
+    const p = state.projects.find(x => G.canSpeedUp(state, x));
+    if (p) {
+      const type = CONFIG.steps[p.step].minigame;
+      p.boostUsed = true;
+      busyUntil = t + MG_SECONDS[type];
+      p.pendingScore = MG_SCORE;
+      p.pendingAt = busyUntil;
+      p.pendingStep = p.step;
+      minigames++;
+    }
+  }
+  for (const p of state.projects.slice()) {
+    if (p.pendingAt === t) {
+      if (p.step === p.pendingStep && p.worker) G.applyMinigame(state, p.id, p.pendingScore);
+      p.pendingAt = null;
+    }
+  }
+  G.tick(state, 1, true);
+  if (t % SHOP_EVERY === 0) shop();
   const lv = G.studioLevel(state);
   if (lv > lastLevel) {
-    report.push("Level " + lv + " (" + CONFIG.levels[lv - 1].name + ") at " + (t / 3600).toFixed(2) + " h, money $" + Math.round(state.money) + ", games " + state.released.length + ", hires " + state.hires.length);
+    report.push("Level " + lv + " (" + CONFIG.levels[lv - 1].name + ") at " + (t / 3600).toFixed(2) + " h, games " + state.released.length +
+      ", fans " + Math.round(state.fans).toLocaleString() + ", players " + Math.round(state.playersTotal).toLocaleString() + ", money $" + Math.round(state.money).toLocaleString() + ", hires " + state.hires.length);
     lastLevel = lv;
   }
   if (state.won) break;
 }
+console.log("Player: " + PLAYER);
 console.log(report.join("\n"));
-console.log("Stopped at " + (t / 3600).toFixed(2) + " h with " + Math.round(state.fans) + " fans");
+console.log("Stopped at " + (t / 3600).toFixed(2) + " h with " + Math.round(state.fans).toLocaleString() + " fans, " + state.released.length + " games, " + sequels + " sequels, " + minigames + " mini-games");
 console.log("Skills: " + Object.keys(state.skills).map(k => k + " " + state.skills[k].level).join(", "));
+const g0 = state.released[0];
+if (g0) console.log("Last game: " + g0.stars + " stars, launch " + Math.round(g0.peak).toLocaleString() + " players/s");
 
 // Week away test: leave the game for 7 days and see what you come back to.
-const moneyBefore = state.money;
+const moneyBefore = state.money, fansBefore = state.fans;
 state.lastTick = Date.now() - 7 * 24 * 3600 * 1000;
 const away = G.catchUp(state);
-console.log("Before leaving: $" + Math.round(moneyBefore) + ". After a week away: +$" + Math.round(away.money) + " (bonus $" + away.bonus + "), +" + Math.round(away.fans) + " fans");
+console.log("Before leaving: $" + Math.round(moneyBefore).toLocaleString() + ", " + Math.round(fansBefore).toLocaleString() + " fans. After a week away: +$" + Math.round(away.money).toLocaleString() + ", +" + Math.round(away.fans).toLocaleString() + " fans");

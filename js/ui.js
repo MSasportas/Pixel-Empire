@@ -16,16 +16,27 @@ let slot = null;    // which save slot it lives in (0, 1 or 2)
 
 function $(id) { return document.getElementById(id); }
 
-// Turns 1234567 into "1.23M", and 12345 into "12,345".
+// Turns 1234567.8 into "1,234,568". Always whole numbers.
 function fmt(n) {
-  if (n > 0 && n < 0.1) return n.toFixed(2);
-  if (n > 0 && n < 10 && n % 1 !== 0) return n.toFixed(1);
-  n = Math.floor(n);
-  if (n >= 1e9) return (n / 1e9).toFixed(2) + "B";
-  if (n >= 1e6) return (n / 1e6).toFixed(2) + "M";
-  return n.toLocaleString("en-US");
+  return Math.round(n || 0).toLocaleString("en-US");
 }
 function money(n) { return "$" + fmt(n); }
+
+// A number per second. Tiny amounts show as "<1" instead of decimals.
+function rate(n) {
+  if (n > 0 && n < 0.5) return "<1";
+  return fmt(n);
+}
+
+// Stars like ★★★½, drawn with CSS so half stars look right.
+function starsHtml(stars) {
+  let html = '<span class="stars" title="' + stars + ' stars">';
+  for (let i = 1; i <= 5; i++) {
+    const cls = stars >= i ? "on" : stars >= i - 0.5 ? "half" : "off";
+    html += '<span class="' + cls + '">★</span>';
+  }
+  return html + "</span>";
+}
 
 // ----- The calendar -----
 const MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
@@ -72,26 +83,51 @@ function fmtClock(seconds) {
   return s + "s";
 }
 
-// Money per second, with cents when it's small.
+// Money per second.
 function moneyRate(n) {
-  if (n > 0 && n < 10) return "$" + n.toFixed(2) + "/s";
-  return money(n) + "/s";
+  return "$" + rate(n) + "/s";
 }
 
-// A small "+1.2 players/s" style line for the Store.
+// Money, players and fans per second, in their colors.
+function ratesHtml(r) {
+  return '<span class="pink">' + moneyRate(r.money) + '</span> · <span class="cyan">' + rate(r.players) + ' players/s</span> · <span class="yellow">' + rate(r.fans) + " fans/s</span>";
+}
+
+// A small "+12 players/s" style line for the Store.
 function gainLine(gain, what) {
   const parts = [];
-  if (what.includes("players")) parts.push('<span class="gain cyan">+' + fmt(gain.players) + " players/s</span>");
-  if (what.includes("fans")) parts.push('<span class="gain yellow">+' + fmt(gain.fans) + " fans/s</span>");
+  if (what.includes("players")) parts.push('<span class="gain cyan">+' + rate(gain.players) + " players/s</span>");
+  if (what.includes("fans")) parts.push('<span class="gain yellow">+' + rate(gain.fans) + " fans/s</span>");
   if (what.includes("money")) parts.push('<span class="gain pink">+' + moneyRate(gain.money) + "</span>");
   return parts.join(" ");
 }
 
+// Real time, like "45 sec", "6 min" or "2 hr 10 min".
 function fmtTime(seconds) {
-  if (seconds < 90) return Math.round(seconds) + " seconds";
-  if (seconds < 5400) return Math.round(seconds / 60) + " minutes";
-  if (seconds < 172800) return Math.round(seconds / 3600) + " hours";
+  seconds = Math.max(0, Math.round(seconds));
+  if (seconds < 60) return seconds + " sec";
+  const min = Math.round(seconds / 60);
+  if (min < 60) return min + " min";
+  const h = Math.floor(min / 60), m = min % 60;
+  if (h < 48) return h + " hr" + (m ? " " + m + " min" : "");
   return Math.round(seconds / 86400) + " days";
+}
+
+// What a released game is doing right now, per second.
+function gameRates(g) {
+  const p = playersPerSecondNow(g);
+  return { players: p, money: p * g.moneyPerPlayer, fans: p * g.fanRate };
+}
+
+function allRates() {
+  const r = { players: 0, money: 0, fans: 0 };
+  for (const g of state.released) { const x = gameRates(g); r.players += x.players; r.money += x.money; r.fans += x.fans; }
+  return r;
+}
+
+// A "NEW" tag for things you just unlocked.
+function newTag(on) {
+  return on ? ' <span class="new-tag">NEW</span>' : "";
 }
 
 // Makes text safe to show (so a game called "<b>" doesn't break the page).
@@ -166,7 +202,7 @@ const UI = {
     Office.fit();
     let html = "";
     for (let i = 0; i < CONFIG.saveSlots; i++) {
-      const s = loadGame(i);
+      const s = loadGame(i) && upgradeSave(loadGame(i));
       if (s) {
         const lv = levelInfo(s);
         html += '<div class="slot"><div class="slot-name">' + esc(s.studioName) + '</div>' +
@@ -191,9 +227,10 @@ const UI = {
         const s = loadGame(i);
         if (s && (!best || s.lastTick > best.lastTick)) best = s;
       }
+      if (best) best = upgradeSave(best);
       if (!best) {
         best = newGameState("Demo", 0, null);
-        best.fans = 20000;
+        best.fans = 300000;
         for (const st of CONFIG.steps) {
           best.desks[st.id] = 2;
           for (let k = 0; k < 2; k++) best.hires.push({ id: st.id + k, name: "", section: st.id, look: randomLook() });
@@ -245,7 +282,7 @@ const UI = {
   // ----- Starting and saving ----------------------------------------
 
   enterGame(newState, slotNumber, isNew) {
-    state = newState;
+    state = upgradeSave(newState);
     slot = slotNumber;
     this.demo = null;
     $("title").classList.add("hidden");
@@ -274,20 +311,20 @@ const UI = {
 
   updateHud() {
     if (!state) return;
-    let moneyRate = 0, playerRate = 0, fanRate = 0;
-    for (const g of state.released) {
-      const p = playersPerSecondNow(g);
-      playerRate += p; moneyRate += p * g.moneyPerPlayer; fanRate += p * g.fanRate;
-    }
+    const r = allRates();
     const lv = levelInfo(state);
     $("hud-money").textContent = money(state.money);
-    $("hud-money-rate").textContent = "+" + money(moneyRate) + "/s";
+    $("hud-money-rate").textContent = "+" + moneyRate(r.money);
     $("hud-players").textContent = fmt(state.playersTotal);
-    $("hud-players-rate").textContent = "+" + fmt(playerRate) + "/s";
+    $("hud-players-rate").textContent = "+" + rate(r.players) + "/s";
     $("hud-fans").textContent = fmt(state.fans);
     $("hud-time").textContent = fmtDate(state.day);
-    $("btn-games").textContent = "Games (" + state.released.length + ")";
-    $("hud-fans-rate").textContent = "+" + fmt(fanRate) + "/s";
+    // A star on Games when a sequel is ready, and NEW on the Store.
+    const sequelReady = state.released.some(g => { const i = sequelInfo(state, g); return i.ready && !i.made && i.bonus >= 0.3; });
+    const gamesHtml = "Games (" + state.released.length + ")" + (sequelReady ? ' <span class="badge star sym">★</span>' : "");
+    if ($("btn-games").innerHTML !== gamesHtml) $("btn-games").innerHTML = gamesHtml;
+    $("store-badge").classList.toggle("hidden", newUnlocks(state, "store").length === 0);
+    $("hud-fans-rate").textContent = "+" + rate(r.fans) + "/s";
     $("hud-level").textContent = lv.current.name;
     if (lv.next) {
       const frac = (state.fans - lv.current.fans) / (lv.next.fans - lv.current.fans);
@@ -306,12 +343,12 @@ const UI = {
     // Convention invite
     const toast = $("toast");
     if (state.event) {
-      const left = fmtDays(secondsToDays(Math.max(0, state.event.expiresAt - state.playSeconds)));
-      const html = '<b>Invite: ' + esc(state.event.name) + '!</b> Show off a game for new players. (' + left + ' min left) ' +
+      const left = fmtTime(Math.max(0, state.event.expiresAt - state.playSeconds));
+      const html = '<b>Invite: ' + esc(state.event.name) + '!</b> Show off a game for new players. (' + left + ' left) ' +
         '<button class="btn small" data-act="open" data-name="event">Pick a game</button> <button class="btn small ghost" data-act="decline-event">No thanks</button>';
       if (toast.dataset.html !== html) { toast.innerHTML = html; toast.dataset.html = html; }
       toast.classList.remove("hidden");
-    } else {
+    } else if (toast.dataset.html !== "msg") {
       toast.classList.add("hidden");
       toast.dataset.html = "";
     }
@@ -326,7 +363,7 @@ const UI = {
       done: s => s.projects.length > 0 || s.released.length > 0 },
     { text: "Click the <b>Concept</b> section with the yellow <b>!</b> and start the concept.",
       done: s => s.released.length > 0 || s.projects.some(p => p.step > 0 || p.worker) },
-    { text: "Every step has its own section. Click the next <b>!</b> to keep going. Try <b>Speed up!</b> for a mini-game.",
+    { text: "Every step has its own section. Click the next <b>!</b> to keep going. Press <b>⚡ Speed up!</b> for a mini-game: play it perfectly and the step is done at once!",
       done: s => s.released.length > 0 || s.projects.some(p => p.step >= 3) },
     { text: "<b>Testing</b> finds bugs. Test your game, or skip it and see what fans say.",
       done: s => s.released.length > 0 || s.projects.some(p => p.step >= 4) },
@@ -398,7 +435,13 @@ const UI = {
         (a.bonus ? '<div>Welcome back bonus</div><b>+' + money(a.bonus) + '</b>' : "") + '</div>';
     } else if (c.type === "level") {
       const l = CONFIG.levels[c.data - 1];
-      html = '<h2>Level up!</h2><p>' + esc(state.studioName) + ' is now a <b>' + l.name + '</b>.</p><p>New: ' + l.unlocks + '</p>';
+      const before = CONFIG.levels[c.data - 2];
+      const kinds = { genre: "New genre", price: "New price", size: "New game size", engine: "New engine in the Store", feature: "New feature in the Store", desks: "Office" };
+      let list = unlocksAt(c.data).map(u => "<li><b>" + kinds[u.kind] + ":</b> " + esc(u.name) + "</li>").join("");
+      if (before && l.games > before.games) list += "<li><b>Bigger studio:</b> make " + l.games + " games at the same time</li>";
+      html = '<h2>Level up!</h2><p>' + esc(state.studioName) + ' is now a <b>' + l.name + '</b>!</p>' +
+        (list ? '<p>You unlocked:</p><ul class="unlocks">' + list + "</ul>" : "") +
+        (newUnlocks(state, "store").length ? '<p class="muted">Look for <span class="new-tag">NEW</span> in the Store.</p>' : "");
     } else if (c.type === "win") {
       html = '<h2>AAA Studio!</h2><p>' + esc(state.studioName) + ' reached ' + fmt(CONFIG.winFans) + ' fans. You made it from one desk to a AAA studio!</p>' +
         '<p>You can keep playing, or found a new studio that works ' + Math.round((state.legacy + 1) * CONFIG.legacySpeedBonus * 100) + '% faster.</p>' +
@@ -423,6 +466,8 @@ const UI = {
     }
     this.panel = p;
     if (p.name === "make" && !this.form) this.newForm();
+    if (p.name === "make") this.captureNew("make");
+    if (p.name === "store") this.captureNew(this.storeWhere(p.tab || "skills"));
     if (p.name === "store" && state.guide === 5) state.guide = 6;
     if (p.name === "mail") {
       if (state.guide === 6) state.guide = 7;
@@ -433,6 +478,23 @@ const UI = {
     $("panel").classList.remove("hidden");
   },
 
+  // Remembers what's new in a place, so NEW tags stay while you look,
+  // then marks those things as seen.
+  captureNew(where) {
+    if (!where) return;
+    this.shownNew = this.shownNew || {};
+    for (const u of newUnlocks(state, where)) this.shownNew[u.key] = true;
+    markSeen(state, where);
+  },
+
+  storeWhere(tab) {
+    return { engines: "engines", features: "features", desks: "desks" }[tab] || null;
+  },
+
+  isShownNew(kind, id) {
+    return !!(this.shownNew && this.shownNew[kind + ":" + id]);
+  },
+
   closePanel() {
     this.renaming = null;
     if (this.panelStack.length) {
@@ -441,6 +503,7 @@ const UI = {
       return;
     }
     this.panel = null;
+    this.shownNew = {};
     $("panel").classList.add("hidden");
     $("panel").innerHTML = "";
   },
@@ -468,7 +531,7 @@ const UI = {
 
   // ----- Make a game ------------------------------------------------
 
-  newForm() {
+  newForm(sequelOf) {
     this.lastHint = null;
     this.form = {
       name: pickRandom(CONFIG.gameNameIdeas),
@@ -476,22 +539,51 @@ const UI = {
       price: "p5",
       features: state.features.slice(),
       size: "small",
+      sequelOf: null,
     };
+    const original = sequelOf && state.released.find(g => g.id === sequelOf);
+    if (original) {
+      const sizes = CONFIG.sizes.filter(z => isUnlocked(state, z));
+      Object.assign(this.form, {
+        name: sequelName(original.name),
+        genre: original.genre,
+        price: isUnlocked(state, byId(CONFIG.prices, original.price)) ? original.price : "p5",
+        size: sizes.some(z => z.id === original.size) ? original.size : "small",
+        sequelOf: original.id,
+      });
+    }
+  },
+
+  // How long a game of this size takes to make, in real time, if one
+  // person works on every step (no mini-games).
+  buildSeconds(sizeId) {
+    const z = byId(CONFIG.sizes, sizeId);
+    return CONFIG.devTimeSeconds * z.time / speedMultiplier(state);
   },
 
   panel_make() {
     const f = this.form;
     const full = state.projects.length >= maxProjects(state);
-    let html = '<label>Game name</label><div class="row"><input id="game-name" maxlength="28" value="' + esc(f.name) + '">' +
-      '<button class="btn small ghost" data-act="form-random-name">Random</button></div>';
+    const original = f.sequelOf && state.released.find(g => g.id === f.sequelOf);
+    const seq = original ? sequelInfo(state, original) : null;
+    let html = "";
+    if (original) {
+      html += '<div class="sequel-box">★ <b>Sequel to ' + esc(original.name) + '</b>. ' + esc(original.name) + ' won ' + fmt(original.fans) +
+        ' fans, so the sequel starts with <b class="cyan">+' + Math.round(seq.bonus * 100) + '% players</b> at launch.' +
+        ' <button class="link" data-act="form-unsequel">Make a new game instead</button></div>';
+    }
+    html += '<label>Game name</label><div class="row"><input id="game-name" maxlength="28" value="' + esc(f.name) + '">' +
+      (original ? "" : '<button class="btn small ghost" data-act="form-random-name">Random</button>') + '</div>';
 
-    html += '<label>Genre</label><div class="choices">';
+    html += '<label>Genre <span class="muted label-note">Stars show how good your game would be, from your skills</span></label><div class="choices">';
     for (const g of CONFIG.genres) {
+      if (original && g.id !== f.genre) continue;
       const skill = byId(CONFIG.skills, g.skill);
       if (isUnlocked(state, g)) {
-        const hint = "<b>" + g.name + ":</b> " + g.about + " Uses your <b>" + skill.name + "</b> skill.";
+        const stars = genreStars(state, g.id);
+        const hint = "<b>" + g.name + ":</b> " + g.about + " Your " + stars + "-star game. It gets better as your <b>" + skill.name + "</b> skill grows.";
         html += '<button class="choice' + (f.genre === g.id ? " on" : "") + '" data-act="form-genre" data-id="' + g.id + '" data-hint="' + esc(hint) + '">' +
-          g.name + '<span class="tag" style="color:' + skill.color + '">' + skill.name + "</span></button>";
+          g.name + newTag(this.isShownNew("genre", g.id)) + "<br>" + starsHtml(stars) + "</button>";
       } else {
         html += '<button class="choice locked" disabled data-hint="' + esc("Unlocks at " + CONFIG.levels[g.level - 1].name + ".") + '">🔒 ' + g.name + "</button>";
       }
@@ -501,19 +593,19 @@ const UI = {
     html += '<label>Price</label><div class="choices">';
     for (const pr of CONFIG.prices) {
       if (isUnlocked(state, pr)) {
-        html += '<button class="choice' + (f.price === pr.id ? " on" : "") + '" data-act="form-price" data-id="' + pr.id + '" data-hint="' + esc(pr.hint) + '">' + pr.label + "</button>";
+        html += '<button class="choice' + (f.price === pr.id ? " on" : "") + '" data-act="form-price" data-id="' + pr.id + '" data-hint="' + esc(pr.hint) + '">' + pr.label + newTag(this.isShownNew("price", pr.id)) + "</button>";
       } else {
         html += '<button class="choice locked" disabled data-hint="' + esc("Unlocks at " + CONFIG.levels[pr.level - 1].name + ".") + '">🔒 ' + pr.label + "</button>";
       }
     }
     html += "</div>";
 
-    html += '<label>Size</label><div class="choices">';
+    html += '<label>Size <span class="muted label-note">Real time to make it with one person</span></label><div class="choices">';
     for (const z of CONFIG.sizes) {
-      const days = secondsToDays(CONFIG.devTimeSeconds * z.time / speedMultiplier(state));
-      const label = z.label + ' <span class="tag muted">' + fmtDays(days) + "</span>";
+      const time = fmtTime(this.buildSeconds(z.id));
+      const label = z.label + newTag(this.isShownNew("size", z.id)) + ' <span class="tag muted">' + time + "</span>";
       if (isUnlocked(state, z)) {
-        html += '<button class="choice' + (f.size === z.id ? " on" : "") + '" data-act="form-size" data-id="' + z.id + '" data-hint="' + esc(z.hint + " Takes about " + fmtDays(days) + " for one person.") + '">' + label + "</button>";
+        html += '<button class="choice' + (f.size === z.id ? " on" : "") + '" data-act="form-size" data-id="' + z.id + '" data-hint="' + esc(z.hint + " About " + time + " for one person. Hires and mini-games make it faster.") + '">' + label + "</button>";
       } else {
         html += '<button class="choice locked" disabled data-hint="' + esc(z.hint + " Unlocks at " + CONFIG.levels[z.level - 1].name + ".") + '">🔒 ' + z.label + "</button>";
       }
@@ -535,26 +627,30 @@ const UI = {
     html += "</div>";
 
     html += '<div class="hint" id="hint">Point at a genre, price or feature to learn about it.</div>';
+    html += this.estimate();
     if (full) {
-      html += '<p class="note">You are already making ' + state.projects.length + (state.projects.length === 1 ? " game" : " games") + '. Hire people to make more games at the same time.</p>';
+      html += '<p class="note">You are already making ' + state.projects.length + (state.projects.length === 1 ? " game" : " games") + '. Finish one first, or level up your studio to make more at once.</p>';
     }
-    html += '<div class="row"><button class="btn big" data-act="form-start"' + (full || !f.genre ? " disabled" : "") + '>' + (f.genre ? "Start making it!" : "Pick a genre first") + "</button></div>";
-    html += this.earningList(5);
-    return { title: "Make a game", html: html };
+    html += '<div class="row"><button class="btn big" data-act="form-start"' + (full || !f.genre ? " disabled" : "") + '>' + (f.genre ? (original ? "Start the sequel!" : "Start making it!") : "Pick a genre first") + "</button></div>";
+    return { title: original ? "Make a sequel" : "Make a game", html: html };
   },
 
-  // A short list of your best-selling games right now, with money per second.
-  earningList(howMany) {
-    if (!state.released.length) return "";
-    const games = state.released.slice().sort((a, b) => playersPerSecondNow(b) * b.moneyPerPlayer - playersPerSecondNow(a) * a.moneyPerPlayer);
-    let total = 0, players = 0;
-    for (const g of state.released) { total += playersPerSecondNow(g) * g.moneyPerPlayer; players += playersPerSecondNow(g); }
-    let html = '<h3>Your games right now · <span class="pink">' + moneyRate(total) + '</span> · <span class="cyan">+' + fmt(players) + " players/s</span></h3>";
-    for (const g of games.slice(0, howMany)) {
-      html += '<div class="mini-row"><span>' + esc(g.name) + '</span><span><span class="pink">' + moneyRate(playersPerSecondNow(g) * g.moneyPerPlayer) +
-        '</span> · <span class="cyan">+' + fmt(playersPerSecondNow(g)) + " players/s</span></span></div>";
-    }
-    return html;
+  // What the game you're setting up will earn.
+  estimate() {
+    const f = this.form;
+    if (!f.genre) return '<div class="estimate muted">Pick a genre to see what this game will earn.</div>';
+    const original = f.sequelOf && state.released.find(g => g.id === f.sequelOf);
+    const game = { genre: f.genre, price: f.price, size: f.size, features: f.features,
+      sequelOf: original ? original.id : null, sequelBonus: original ? sequelInfo(state, original).bonus : 0 };
+    const n = previewLaunch(state, game);
+    const fake = { peak: n.players, fadeSeconds: n.fadeSeconds };
+    const firstHour = playersBetween(fake, 0, 3600);
+    const repeats = !original && state.lastGenre === f.genre;
+    return '<div class="estimate"><div><b>This game</b> ' + starsHtml(n.stars) + "</div>" +
+      "<div>At launch: " + ratesHtml(n) + "</div>" +
+      '<div>First hour out: <span class="cyan">' + fmt(firstHour) + ' players</span> · <span class="pink">' + money(firstHour * n.moneyPerPlayer) + '</span> · <span class="yellow">' + fmt(firstHour * n.fanRate) + " fans</span></div>" +
+      (repeats ? '<div class="muted">Your last game was ' + byId(CONFIG.genres, f.genre).name + " too. Fans want something new, so this one gets fewer players. (Sequels don't have this problem.)</div>" : "") +
+      "</div>";
   },
 
   // ----- A section of the office ------------------------------------
@@ -562,7 +658,7 @@ const UI = {
   panel_section(p) {
     const step = byId(CONFIG.steps, p.step);
     const stepIndex = CONFIG.steps.indexOf(step);
-    let html = '<p class="about">' + STEP_ABOUT[step.id] + '</p>';
+    let html = '<p class="about">' + STEP_ABOUT[step.id] + (step.minigame ? ' <span class="muted">Every game here can be sped up once with a mini-game, even when someone else is working on it.</span>' : "") + '</p>';
     const here = state.projects.filter(x => x.step === stepIndex);
     if (here.length === 0) html += '<p class="muted">No games here right now.</p>';
     for (const g of here) {
@@ -574,10 +670,12 @@ const UI = {
         const nameOf = id => id === "you" ? "You" : esc((state.hires.find(h => h.id === id) || {}).name || "Someone");
         const people = [g.worker].concat(g.helpers || []).map(nameOf);
         const done = g.progress / stepDuration(state, g);
-        html += '<div class="muted">' + people.join(", ") + " · " + fmtDays(secondsToDays(stepTimeLeft(state, g))) + " left</div>" + bar(done);
+        html += '<div class="muted">' + people.join(", ") + " · " + fmtTime(stepTimeLeft(state, g)) + " left</div>" + bar(done, step.color);
         html += "</div>";
-        if (g.worker === "you" && step.minigame && !g.boostUsed) {
-          html += '<button class="btn small" data-act="minigame" data-id="' + g.id + '">Speed up!</button>';
+        if (canSpeedUp(state, g)) {
+          html += '<button class="btn small glow" data-act="minigame" data-id="' + g.id + '"><span class="sym">⚡</span> Speed up!</button>';
+        } else if (g.boostUsed && step.minigame) {
+          html += '<span class="muted small">Sped up</span>';
         }
       } else {
         html += '<div class="muted">Waiting</div></div>';
@@ -603,7 +701,7 @@ const UI = {
       else if (state.desks[step.id] === hires.length) html += '<span class="muted">Every desk has someone. Buy a desk to hire more.</span>';
       html += "</div>";
     }
-    return { title: step.name, html: html };
+    return { title: '<span style="color:' + step.color + ";text-shadow:0 0 8px " + step.color + '">' + step.name + "</span>", html: html };
   },
 
   personRow(h) {
@@ -619,19 +717,30 @@ const UI = {
   panel_store(p) {
     const tab = p.tab || "skills";
     const tabs = [["skills", "Skills"], ["engines", "Engines"], ["features", "Features"], ["desks", "Desks"], ["supplies", "Office"]];
-    let html = '<div class="tabs">' + tabs.map(t =>
-      '<button class="tab' + (tab === t[0] ? " on" : "") + '" data-act="store-tab" data-tab="' + t[0] + '">' + t[1] + "</button>").join("") + "</div>";
+    let html = '<div class="tabs">' + tabs.map(t => {
+      const where = this.storeWhere(t[0]);
+      const dot = where && tab !== t[0] && newUnlocks(state, where).length ? ' <span class="new-dot"></span>' : "";
+      return '<button class="tab' + (tab === t[0] ? " on" : "") + '" data-act="store-tab" data-tab="' + t[0] + '">' + t[1] + dot + "</button>";
+    }).join("") + "</div>";
 
     const usual = usualGame(state);
     const usualName = usual.name ? esc(usual.name) : "a $5 Action game";
     if (tab === "skills") {
-      html += '<p class="muted">You get better with every game you make. Training makes you better faster. Numbers show what the next level adds at launch to a game like ' + usualName + ".</p>";
+      html += '<p class="muted">You get better with every game you make. Training makes you better faster. Each skill matters most for its own genres, and a little for every game. Numbers show what the next level adds at launch.</p>';
       for (const s of CONFIG.skills) {
         const sk = state.skills[s.id];
         const extra = s.id === "engines" ? " (+" + bestEngine(state).power + " from " + bestEngine(state).name + ")" : "";
-        const gain = previewChange(state, usual, () => { sk.level += 1; }, () => { sk.level -= 1; });
+        // Show the gain for this skill's own genre, like a game you'd make.
+        const genres = CONFIG.genres.filter(g => g.skill === s.id && isUnlocked(state, g));
+        const genre = genres[0];
+        const game = Object.assign({}, usual, genre ? { genre: genre.id } : {});
+        const before = previewLaunch(state, game);
+        const gain = previewChange(state, game, () => { sk.level += 1; }, () => { sk.level -= 1; });
+        sk.level += 1; const starsAfter = previewLaunch(state, game).stars; sk.level -= 1;
+        const forWhat = genre ? genres.map(g => g.name).join(", ") + " games" : "every game";
+        const starText = starsAfter > before.stars ? " " + starsHtml(before.stars) + " → " + starsHtml(starsAfter) : "";
         html += '<div class="item"><div class="item-main"><b style="color:' + s.color + '">' + s.name + "</b> level " + sk.level + extra +
-          bar(sk.xp / xpNeeded(sk.level), s.color) + '<div class="gains">Next level: ' + gainLine(gain, ["players", "fans"]) + "</div></div>" +
+          bar(sk.xp / xpNeeded(sk.level), s.color) + '<div class="gains">Next level, ' + forWhat + ": " + gainLine(gain, ["players", "fans"]) + starText + "</div></div>" +
           costButton("train", 'data-id="' + s.id + '"', trainCost(state, s.id), "Train") + "</div>";
       }
     }
@@ -646,7 +755,7 @@ const UI = {
           const gain = previewChange(state, usual, () => state.engines.push(e.id), () => state.engines.pop());
           gainHtml = '<div class="gains">Adds ' + gainLine(gain, ["players", "fans"]) + "</div>";
         }
-        html += '<div class="item"><div class="item-main"><b>' + e.name + "</b> <span class=\"muted\">+" + e.power + " Engines</span><div>Good for: " + e.good + "</div>" + gainHtml + "</div>" + right + "</div>";
+        html += '<div class="item"><div class="item-main"><b>' + e.name + "</b>" + newTag(this.isShownNew("engine", e.id)) + " <span class=\"muted\">+" + e.power + " Engines</span><div>Good for: " + e.good + "</div>" + gainHtml + "</div>" + right + "</div>";
       }
     }
     if (tab === "features") {
@@ -660,14 +769,15 @@ const UI = {
         const withIt = Object.assign({}, without, { features: without.features.concat([f.id]) });
         const a = previewLaunch(state, without), b = previewLaunch(state, withIt);
         const gain = { players: b.players - a.players, fans: b.fans - a.fans, money: b.money - a.money };
-        const what = f.fade > 1 ? '<div class="gains">Sales fade ' + f.fade + " times slower</div>" : '<div class="gains">Adds ' + gainLine(gain, gain.players > 0.0001 ? ["players", "fans"] : ["fans"]) + "</div>";
-        html += '<div class="item"><div class="item-main"><b>' + f.name + "</b><div>" + f.hint + "</div>" + what + "</div>" + right + "</div>";
+        const what = f.fade > 1 ? '<div class="gains">Sales fade ' + f.fade + " times slower</div>" : '<div class="gains">Adds ' + gainLine(gain, gain.players >= 0.5 ? ["players", "fans"] : ["fans"]) + "</div>";
+        html += '<div class="item"><div class="item-main"><b>' + f.name + "</b>" + newTag(this.isShownNew("feature", f.id)) + "<div>" + f.hint + "</div>" + what + "</div>" + right + "</div>";
       }
     }
     if (tab === "desks") {
       if (studioLevel(state) < 2) html += '<p class="muted">Desks for hires unlock when you become an Indie Studio (' + fmt(CONFIG.levels[1].fans) + ' fans).</p>';
       else {
-        html += '<p class="muted">Each hire needs a desk. Your studio level decides how many desks each section can have (' + desksAllowed(state) + " now).</p>";
+        html += '<p class="muted">Each hire needs a desk. Your studio level decides how many desks each section can have (' + desksAllowed(state) + " now)." +
+          newTag(this.isShownNew("desks", String(desksAllowed(state)))) + " Hires work on their own and help each other finish big games faster.</p>";
         for (const st of CONFIG.steps) {
           const right = state.desks[st.id] < desksAllowed(state)
             ? costButton("buy-desk", 'data-id="' + st.id + '"', deskCost(state, st.id), "Buy")
@@ -687,7 +797,7 @@ const UI = {
         if (cost !== undefined) {
           const now = CONFIG.devTimeSeconds / speedMultiplier(state);
           const after = CONFIG.devTimeSeconds / (speedMultiplier(state) + s.speed * (1 + CONFIG.legacySpeedBonus * state.legacy));
-          next = ' → <span class="muted">' + s.levels[lv + 1] + '</span><div class="gains"><span class="gain cyan">Small games ' + Math.round(now - after) + "s faster</span></div>";
+          next = ' → <span class="muted">' + s.levels[lv + 1] + '</span><div class="gains"><span class="gain cyan">Small games ' + fmtTime(now - after) + " faster</span></div>";
         }
         html += '<div class="item"><div class="item-main"><b>' + s.name + "</b>: " + s.levels[lv] + next + "</div>" + right + "</div>";
       }
@@ -700,26 +810,32 @@ const UI = {
   panel_games() {
     let html = "";
     if (state.projects.length) {
-      html += "<h3>Being made (" + state.projects.length + ")</h3>";
+      html += "<h3>Being made (" + state.projects.length + " of " + maxProjects(state) + ")</h3>";
       for (const p of state.projects) {
         const size = byId(CONFIG.sizes, p.size || "small").label;
-        const status = p.worker ? fmtDays(secondsToDays(stepTimeLeft(state, p))) + " left on this step, " + workersOn(p) + (workersOn(p) === 1 ? " person" : " people") : "waiting for someone";
-        html += '<div class="item"><div class="item-main"><b>' + esc(p.name) + '</b> <span class="muted">' + size + " · " + CONFIG.steps[p.step].name + '</span><div class="muted">' + status + "</div></div></div>";
+        const step = CONFIG.steps[p.step];
+        const status = p.worker ? fmtTime(stepTimeLeft(state, p)) + " left on this step, " + workersOn(p) + (workersOn(p) === 1 ? " person" : " people") : "waiting for someone";
+        html += '<div class="item"><div class="item-main"><b>' + esc(p.name) + '</b> <span class="muted">' + size + ' · </span><span style="color:' + step.color + '">' + step.name + '</span><div class="muted">' + status + "</div></div></div>";
       }
     }
-    let total = 0, players = 0;
-    for (const g of state.released) { total += playersPerSecondNow(g) * g.moneyPerPlayer; players += playersPerSecondNow(g); }
-    html += "<h3>Released (" + state.released.length + ') · <span class="pink">' + moneyRate(total) + '</span> · <span class="cyan">+' + fmt(players) + " players/s</span></h3>";
+    html += "<h3>Released (" + state.released.length + ") · " + ratesHtml(allRates()) + "</h3>";
     if (!state.released.length) html += '<p class="muted">No games out yet.</p>';
+    else html += '<p class="muted small">When a game has been out for ' + fmtDays(CONFIG.sequelAfterDays) + ', you can make a sequel. Games that won lots of fans give their sequel a bigger launch.</p>';
     for (const g of state.released.slice(0, 40)) {
       const genre = byId(CONFIG.genres, g.genre), price = byId(CONFIG.prices, g.price);
       const size = byId(CONFIG.sizes, g.size || "small").label;
       const stage = salesStage(g);
       const stageText = '<span class="stage stage-' + stage.name.toLowerCase() + '">' + stage.name + "</span>" +
-        (stage.next ? ' <span class="muted">' + stage.next + " in " + fmtDays(secondsToDays(stage.secondsToNext)) + "</span>" : "");
-      html += '<div class="item"><div class="item-main"><b>' + esc(g.name) + "</b> " + (g.bugs ? "🐞" : "") + ' <span class="muted">' + genre.name + " · " + size + " · " + price.label + "</span>" +
-        '<div><span class="pink">' + moneyRate(playersPerSecondNow(g) * g.moneyPerPlayer) + '</span> · <span class="cyan">+' + fmt(playersPerSecondNow(g)) + " players/s</span> · " + fmt(g.players) + " players so far</div>" +
-        '<div class="muted">Out for ' + fmtDays(g.days !== undefined ? g.days : secondsToDays(g.age)) + " · Launched " + fmtDate(g.launchDay || 0) + " · " + stageText + "</div></div></div>";
+        (stage.next ? ' <span class="muted">' + stage.next + " in " + fmtDays(secondsToDays(stage.secondsToNext)) + "</span>" : ' <span class="muted">still selling a little</span>');
+      const seq = sequelInfo(state, g);
+      let right = "";
+      if (seq.made) right = '<span class="muted small">Sequel made</span>';
+      else if (!seq.ready) right = '<span class="muted small">Sequel in ' + fmtDays(seq.daysLeft) + "</span>";
+      else right = '<button class="btn small' + (seq.bonus >= 0.3 ? " glow" : " ghost") + '" data-act="sequel" data-id="' + g.id + '"><span class="sym">★</span> Create sequel<br>+' + Math.round(seq.bonus * 100) + "% players</button>";
+      html += '<div class="item"><div class="item-main"><b>' + esc(g.name) + "</b> " + (g.stars ? starsHtml(g.stars) : "") + (g.bugs ? " 🐞" : "") + ' <span class="muted">' + genre.name + " · " + size + " · " + price.label + "</span>" +
+        "<div>Now: " + ratesHtml(gameRates(g)) + "</div>" +
+        '<div>So far: <span class="cyan">' + fmt(g.players) + ' players</span> · <span class="pink">' + money(g.money || 0) + '</span> · <span class="yellow">' + fmt(g.fans || 0) + " fans</span></div>" +
+        '<div class="muted">Out for ' + fmtDays(g.days !== undefined ? g.days : secondsToDays(g.age)) + " · Launched " + fmtDate(g.launchDay || 0) + " · " + stageText + "</div></div>" + right + "</div>";
     }
     return { title: "Your games (" + state.released.length + ")", html: html };
   },
@@ -831,7 +947,15 @@ const UI = {
       // Panels
       case "open": this.openPanel({ name: data.name, tab: data.tab }); Sound.play("click"); break;
       case "close": this.closePanel(); break;
-      case "store-tab": this.panel.tab = data.tab; Sound.play("click"); this.renderPanel(); break;
+      case "store-tab": this.panel.tab = data.tab; this.captureNew(this.storeWhere(data.tab)); Sound.play("click"); this.renderPanel(); break;
+      case "sequel": {
+        if (state.projects.length >= maxProjects(state)) { no(); this.toast("You're making as many games as you can. Finish one first!"); break; }
+        this.newForm(data.id);
+        this.openPanel({ name: "make" });
+        Sound.play("click");
+        break;
+      }
+      case "form-unsequel": this.newForm(); this.renderPanel(); break;
       case "close-card":
         $("card").classList.add("hidden");
         this.showNextCard();
@@ -853,7 +977,7 @@ const UI = {
       }
       case "form-start": {
         const nameValue = $("game-name").value.trim() || pickRandom(CONFIG.gameNameIdeas);
-        if (startNewGame(s, { name: nameValue.slice(0, 28), genre: this.form.genre, price: this.form.price, features: this.form.features, size: this.form.size })) {
+        if (startNewGame(s, { name: nameValue.slice(0, 28), genre: this.form.genre, price: this.form.price, features: this.form.features, size: this.form.size, sequelOf: this.form.sequelOf })) {
           Sound.play("step");
           this.form = null;
           this.panelStack = [];
@@ -867,13 +991,16 @@ const UI = {
       case "skip-testing": skipTesting(s, data.id); Sound.play("click"); this.renderPanel(); break;
       case "minigame": {
         const p = s.projects.find(x => x.id === data.id);
-        if (!p) break;
+        if (!p || !canSpeedUp(s, p)) break;
         p.boostUsed = true;
         const stepNow = p.step;
-        Minigames.start(CONFIG.steps[stepNow].minigame,
-          () => applyMinigame(state, p.id, 1),                                    // each hit
-          () => !state || !state.projects.includes(p) || p.step !== stepNow || !p.worker, // step done?
-          () => this.renderPanel());
+        const stepDone = () => !state || !state.projects.includes(p) || p.step !== stepNow || !p.worker;
+        Minigames.start(CONFIG.steps[stepNow].minigame, p,
+          stepDone,
+          score => {                       // score: 0 to 1
+            if (!stepDone()) applyMinigame(state, p.id, score);
+            if (this.panel) this.renderPanel();
+          });
         break;
       }
       case "buy-desk": buyDesk(s, data.id) ? ok() : no(); this.renderPanel(); break;
@@ -914,6 +1041,16 @@ const UI = {
       case "export": this.downloadBackup(); break;
       case "do-import": this.doImport(); break;
     }
+  },
+
+  // A short message at the top of the screen.
+  toast(text) {
+    const el = $("toast");
+    el.innerHTML = esc(text);
+    el.dataset.html = "msg";
+    el.classList.remove("hidden");
+    clearTimeout(this.toastTimer);
+    this.toastTimer = setTimeout(() => { if (el.dataset.html === "msg") { el.classList.add("hidden"); el.dataset.html = ""; } }, 3000);
   },
 
   finishRename() {

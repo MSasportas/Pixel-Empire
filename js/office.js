@@ -121,6 +121,22 @@ function drawEmptyDeskSpot(ctx, x, y) {
   ctx.fillRect(x + DESK_W / 2, y + DESK_H / 2 - 2, 1, 5);
 }
 
+// A small yellow lightning bolt: "you can speed this up!"
+function drawBolt(ctx, x, y, time) {
+  const on = Math.floor(time * 3) % 2 === 0;
+  ctx.fillStyle = NEON.dark;
+  ctx.fillRect(x - 1, y - 1, 7, 11);
+  ctx.fillStyle = on ? "#ffd23f" : "#fff3a0";
+  ctx.fillRect(x + 2, y, 3, 1);
+  ctx.fillRect(x + 1, y + 1, 3, 1);
+  ctx.fillRect(x + 1, y + 2, 2, 1);
+  ctx.fillRect(x, y + 3, 5, 1);
+  ctx.fillRect(x + 2, y + 4, 2, 1);
+  ctx.fillRect(x + 2, y + 5, 2, 1);
+  ctx.fillRect(x + 1, y + 6, 2, 1);
+  ctx.fillRect(x + 1, y + 7, 1, 1);
+}
+
 function drawPlant(ctx, x, y) {
   ctx.fillStyle = NEON.dark; ctx.fillRect(x - 4, y - 6, 8, 7);
   ctx.fillStyle = "#6b3fa0"; ctx.fillRect(x - 3, y - 5, 6, 5);
@@ -317,14 +333,16 @@ const Office = {
     CONFIG.steps.forEach((step, i) => {
       const x0 = i * SECTION_W;
       const hover = this.hoverSection === i;
-      // Section floor marking
-      ctx.fillStyle = hover ? "rgba(46,230,255,0.07)" : "rgba(0,0,0,0)";
+      // Each section has its own neon color, with a soft glow on its floor.
+      const color = step.color;
+      ctx.fillStyle = color;
+      ctx.globalAlpha = hover ? 0.1 : 0.035;
       ctx.fillRect(x0, WALL_H, SECTION_W, WORLD_H - WALL_H);
+      ctx.globalAlpha = 1;
       if (i > 0) {
-        ctx.fillStyle = "rgba(46,230,255,0.18)";
+        ctx.fillStyle = "rgba(255,255,255,0.12)";
         for (let y = WALL_H + 4; y < WORLD_H; y += 8) ctx.fillRect(x0, y, 1, 4);
       }
-      const color = i % 2 === 0 ? NEON.pink : NEON.cyan;
       const label = step.id === "preprod" ? "PRE-PROD" : step.name.toUpperCase();
       drawNeonSign(ctx, x0 + SECTION_W / 2, label, color, t, hover);
     });
@@ -374,9 +392,12 @@ const Office = {
     drawList.sort((a, b) => a.y - b.y);
     for (const item of drawList) item.fn();
 
-    // Progress bars above people who are working
+    // Progress bars above people who are working, in the section's color.
+    // A lightning bolt next to the main worker means you can still speed
+    // that step up with a mini-game.
     for (const p of state.projects) {
       if (!p.worker) continue;
+      const color = CONFIG.steps[p.step].color;
       const done = Math.min(1, p.progress / stepDuration(state, p));
       for (const id of [p.worker].concat(p.helpers || [])) {
         const w = this.people[id];
@@ -384,8 +405,11 @@ const Office = {
         const bx = Math.round(w.x) - 9, by = Math.round(w.y) - 33;
         ctx.fillStyle = NEON.dark; ctx.fillRect(bx - 1, by - 1, 20, 5);
         ctx.fillStyle = "#3a2c5c"; ctx.fillRect(bx, by, 18, 3);
-        ctx.fillStyle = id === p.worker ? NEON.cyan : NEON.pink;
+        ctx.fillStyle = color;
+        ctx.globalAlpha = id === p.worker ? 1 : 0.6;
         ctx.fillRect(bx, by, Math.round(18 * done), 3);
+        ctx.globalAlpha = 1;
+        if (id === p.worker && canSpeedUp(state, p)) drawBolt(ctx, bx + 21, by - 4 + Math.round(Math.sin(t * 5)), t);
       }
     }
 

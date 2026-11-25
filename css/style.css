@@ -233,6 +233,41 @@ input:focus, textarea:focus { outline: none; box-shadow: 0 0 10px var(--cyan); }
 .mail.old { opacity: 0.6; }
 .new-tag { background: var(--yellow); color: var(--bg); font-family: var(--title-font); font-size: 8px; padding: 1px 4px; }
 
+/* Stars: how good a game is */
+.stars { letter-spacing: 1px; white-space: nowrap; font-size: 18px; }
+.stars .on { color: var(--yellow); text-shadow: 0 0 6px rgba(255, 210, 63, 0.6); }
+.stars .off { color: #3a2c5c; }
+.stars .half {
+  background: linear-gradient(90deg, var(--yellow) 50%, #3a2c5c 50%);
+  -webkit-background-clip: text; background-clip: text; color: transparent;
+}
+.label-note { font-family: var(--body-font); font-size: 16px; text-transform: none; margin-left: 6px; }
+
+/* "This game will earn" box in Make a game */
+.estimate {
+  margin-top: 10px; padding: 8px 10px;
+  background: var(--panel2);
+  border: 2px solid var(--yellow);
+  box-shadow: 0 0 10px rgba(255, 210, 63, 0.25);
+}
+.sequel-box {
+  padding: 8px 10px; margin-bottom: 6px;
+  border: 2px solid var(--yellow); color: var(--text);
+  background: rgba(255, 210, 63, 0.08);
+}
+
+/* NEW badges for things you just unlocked */
+.badge.new { font-family: var(--title-font); font-size: 7px; }
+.badge.star { background: var(--yellow); color: var(--bg); }
+/* Symbols like ⚡ and ★ use the body font, since the pixel title font doesn't have them */
+.sym { font-family: var(--body-font), sans-serif; font-size: 16px; line-height: 0; }
+.new-dot {
+  display: inline-block; width: 7px; height: 7px; margin-left: 4px; vertical-align: middle;
+  background: var(--yellow); box-shadow: 0 0 6px var(--yellow);
+}
+ul.unlocks { text-align: left; margin: 6px auto; padding-left: 22px; max-width: 360px; }
+ul.unlocks li { margin: 2px 0; }
+
 /* ----- Title screen: logo over the office ----- */
 .screen {
   position: fixed; inset: 0; z-index: 25;
@@ -322,14 +357,34 @@ input:focus, textarea:focus { outline: none; box-shadow: 0 0 10px var(--cyan); }
 .mg-done { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; text-align: center; font-size: 26px; color: var(--yellow); }
 .mg-word { text-align: center; font-family: var(--title-font); font-size: 26px; color: var(--yellow); margin: 70px 0 30px; text-shadow: 0 0 10px var(--yellow); }
 .mg-input { display: block; margin: 0 auto; text-align: center; }
-.mg-input.wrong { border-color: var(--pink); }
+.mg-input.wrong { border-color: var(--pink); animation: shake 0.3s; }
 .mg-target { text-align: center; margin: 40px 0 30px; }
 .mg-choices { display: flex; justify-content: center; flex-wrap: wrap; gap: 10px; }
 .mg-block {
   font-family: var(--title-font); font-size: 12px; color: var(--bg);
   border: 3px solid var(--bg); padding: 14px 16px; cursor: pointer; display: inline-block;
 }
-.mg-block.shake { animation: shake 0.3s; }
+.mg-block.wrong { opacity: 0.35; }
+.mg-box.shake { animation: shake 0.3s; }
+/* Idea storm */
+.mg-theme { text-align: center; font-size: 26px; margin: 24px 0 18px; color: var(--text); }
+.mg-theme b { font-family: var(--title-font); font-size: 16px; color: var(--yellow); text-shadow: 0 0 8px var(--yellow); }
+.mg-cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; padding: 0 14px; }
+.mg-card {
+  font-family: var(--body-font); font-size: 24px; color: var(--text);
+  background: var(--panel2); border: 2px solid #4a3a72; padding: 14px 6px; cursor: pointer;
+}
+.mg-card:hover { border-color: var(--yellow); }
+.mg-card.right { border-color: #7cff6b; background: rgba(124, 255, 107, 0.2); }
+.mg-card.wrong { border-color: var(--pink); background: rgba(255, 62, 165, 0.2); }
+/* Write the code */
+.mg-code {
+  font-family: "Courier New", monospace; font-size: 22px; text-align: center;
+  margin: 60px 12px 26px; color: var(--muted); white-space: pre-wrap; word-break: break-all;
+}
+.mg-code .typed { color: #7cff6b; }
+.mg-code .cursor { background: var(--yellow); color: var(--bg); }
+.mg-input { font-family: "Courier New", monospace; font-size: 20px; max-width: 90%; }
 @keyframes shake { 25% { transform: translateX(-4px); } 75% { transform: translateX(4px); } }
 
 /* Small windows: make the HUD smaller so the office stays visible */
