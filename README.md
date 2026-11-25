@@ -11,7 +11,7 @@ made by the code itself.
 ## How to play it
 
 - **Online:** once GitHub Pages is turned on, the game is at
-  https://msasportas.github.io/pixel-empire/
+  https://msasportas.github.io/Pixel-Empire/
 - **On your computer:** download the code and double-click `index.html`.
 
 ## What each file does
