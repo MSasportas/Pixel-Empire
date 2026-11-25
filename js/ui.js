@@ -184,6 +184,8 @@ const UI = {
       const hintEl = e.target.closest("[data-hint]");
       if (hintEl) { this.lastHint = hintEl.dataset.hint; if ($("hint")) $("hint").innerHTML = this.lastHint; }
       const el = e.target.closest("[data-act]");
+      // Any tap closes the phone's More menu (except the More button itself).
+      if (!e.target.closest("#btn-more")) this.showNav(false);
       if (el && !el.disabled) { this.act(el.dataset.act, el.dataset, el); }
     });
     // Hover a genre, price or feature to see what it does.
@@ -194,6 +196,7 @@ const UI = {
     });
     document.addEventListener("keydown", e => {
       if (e.target.id === "rename-input" && e.key === "Enter") this.finishRename();
+      if (e.key === "Escape") this.showNav(false);
       if (e.key === "Escape" && this.panel && $("minigame").classList.contains("hidden")) this.closePanel();
     });
     document.addEventListener("focusout", e => {
@@ -349,6 +352,9 @@ const UI = {
     const unread = state.mail.filter(m => !m.read).length;
     $("mail-badge").textContent = unread;
     $("mail-badge").classList.toggle("hidden", unread === 0);
+    // On phones those buttons hide in the More menu, so More gets a dot.
+    const somethingNew = unread > 0 || sequelReady || !$("store-badge").classList.contains("hidden");
+    $("more-dot").classList.toggle("hidden", !somethingNew);
     $("btn-make").classList.toggle("glow", state.projects.length === 0);
     this.updateGuide();
     // Convention invite
@@ -363,6 +369,15 @@ const UI = {
       toast.classList.add("hidden");
       toast.dataset.html = "";
     }
+  },
+
+  // Opens or closes the More menu on phones (it slides up from the
+  // bottom). On big screens the More button is hidden, so this does nothing.
+  showNav(open) {
+    if ($("hud-nav").classList.contains("open") === open) return;
+    $("hud-nav").classList.toggle("open", open);
+    $("nav-scrim").classList.toggle("on", open);
+    $("btn-more").setAttribute("aria-expanded", open ? "true" : "false");
   },
 
   // ----- The guided first game ---------------------------------------
@@ -966,6 +981,8 @@ const UI = {
       // Panels
       case "open": this.openPanel({ name: data.name, tab: data.tab }); Sound.play("click"); break;
       case "close": this.closePanel(); break;
+      case "nav-more": this.showNav(!$("hud-nav").classList.contains("open")); Sound.play("click"); break;
+      case "nav-close": break;   // the tap already closed the More menu
       case "store-tab": this.panel.tab = data.tab; this.captureNew(this.storeWhere(data.tab)); Sound.play("click"); this.renderPanel(); break;
       case "sequel": {
         if (state.projects.length >= maxProjects(state)) { no(); this.toast("You're making as many games as you can. Finish one first!"); break; }

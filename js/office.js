@@ -12,6 +12,12 @@ const WORLD_H = 270;
 const SECTION_W = WORLD_W / 5;  // each of the 5 sections is 96 pixels wide
 const WALL_H = 26;
 
+// On tall phone screens the office is shown as two floors (see Office.show).
+const FOLD_W = SECTION_W * 3;                 // top floor: 3 sections wide
+const FOLD_GAP = 6;                           // dark gap between the floors
+const FOLD_H = WORLD_H * 2 + FOLD_GAP;
+const FOLD_X2 = (FOLD_W - SECTION_W * 2) / 2; // bottom floor sits in the middle
+
 // Neon colors for the "night shift" look.
 const NEON = {
   pink: "#ff3ea5",
@@ -176,48 +182,126 @@ const Office = {
   time: 0,
   onSectionClick: null,
 
+  // The office is drawn on a hidden "world" canvas first. Then show()
+  // copies it onto the real canvas you see. On a tall phone screen the
+  // office is folded into two floors: Concept, Pre-prod and Production
+  // on top, Testing and Launch below. That makes it much bigger!
+  world: null,
+  folded: false,
+
   init(canvas) {
     this.canvas = canvas;
-    canvas.width = WORLD_W;
-    canvas.height = WORLD_H;
-    this.ctx = canvas.getContext("2d");
+    this.world = document.createElement("canvas");
+    this.world.width = WORLD_W;
+    this.world.height = WORLD_H;
+    this.ctx = this.world.getContext("2d");
     this.ctx.imageSmoothingEnabled = false;
+    this.setFolded(false);
     canvas.addEventListener("mousemove", e => {
-      const p = this.toWorld(e);
-      this.hoverSection = p.y > WALL_H - 8 ? Math.floor(p.x / SECTION_W) : -1;
+      this.hoverSection = this.sectionAt(this.toWorld(e));
       canvas.style.cursor = this.hoverSection >= 0 && this.onSectionClick ? "pointer" : "default";
     });
     canvas.addEventListener("mouseleave", () => { this.hoverSection = -1; });
     canvas.addEventListener("click", e => {
-      const p = this.toWorld(e);
-      const i = Math.floor(p.x / SECTION_W);
-      if (p.y > WALL_H - 8 && i >= 0 && i < 5 && this.onSectionClick) this.onSectionClick(CONFIG.steps[i].id);
+      const i = this.sectionAt(this.toWorld(e));
+      if (i >= 0 && this.onSectionClick) this.onSectionClick(CONFIG.steps[i].id);
     });
   },
 
-  // Turns a mouse position on screen into a position in the office.
-  toWorld(e) {
-    const r = this.canvas.getBoundingClientRect();
-    return { x: (e.clientX - r.left) / r.width * WORLD_W, y: (e.clientY - r.top) / r.height * WORLD_H };
+  // Which section (0 to 4) a spot in the office is in, or -1 for none.
+  // The wall at the top doesn't count, only the floor.
+  sectionAt(p) {
+    const i = Math.floor(p.x / SECTION_W);
+    return p.y > WALL_H - 8 && i >= 0 && i < 5 ? i : -1;
   },
 
-  // Makes the office as big as possible while keeping its shape.
-  // Makes the office as big as it can be, leaving room at the top and
-  // bottom for the HUD boxes so they never cover the office.
+  // Folded = two floors (for tall screens). Not folded = one long room.
+  // The top floor has 3 sections, the bottom floor has 2 in the middle.
+  setFolded(folded) {
+    this.folded = folded;
+    this.canvas.width = folded ? FOLD_W : WORLD_W;
+    this.canvas.height = folded ? FOLD_H : WORLD_H;
+    this.screen = this.canvas.getContext("2d");
+    this.screen.imageSmoothingEnabled = false;
+  },
+
+  // Copies the drawn office onto the canvas you see.
+  show() {
+    const g = this.screen;
+    if (!this.folded) { g.drawImage(this.world, 0, 0); return; }
+    g.fillStyle = NEON.dark;
+    g.fillRect(0, 0, FOLD_W, FOLD_H);
+    // Top floor: the first 3 sections
+    g.drawImage(this.world, 0, 0, FOLD_W, WORLD_H, 0, 0, FOLD_W, WORLD_H);
+    // Bottom floor: the last 2 sections, in the middle
+    g.drawImage(this.world, FOLD_W, 0, WORLD_W - FOLD_W, WORLD_H, FOLD_X2, WORLD_H + FOLD_GAP, WORLD_W - FOLD_W, WORLD_H);
+  },
+
+  // Turns a mouse or finger position on screen into a position in the office.
+  toWorld(e) {
+    const r = this.canvas.getBoundingClientRect();
+    // First: where on the canvas, in canvas pixels
+    const x = (e.clientX - r.left) / r.width * this.canvas.width;
+    const y = (e.clientY - r.top) / r.height * this.canvas.height;
+    if (!this.folded || y < WORLD_H) return { x: x, y: y };
+    // On the bottom floor: move it back to where it is in the long room.
+    const fx = x - FOLD_X2;
+    if (fx < 0 || fx >= WORLD_W - FOLD_W) return { x: -1, y: -1 };
+    return { x: fx + FOLD_W, y: y - WORLD_H - FOLD_GAP };
+  },
+
+  // Makes everything fit the screen:
+  //  1. Picks the layout. Phones get a slim bar at the top and buttons
+  //     at the bottom (body class "phone"). Tall phones also get "tall".
+  //  2. Makes the office as big as it can be in the space that's left,
+  //     so the HUD never covers it.
   fit() {
+    const W = window.innerWidth, H = window.innerHeight;
+    const tall = H > W;
+    const phone = tall ? W <= 820 : H <= 500;
+    document.body.classList.toggle("phone", phone);
+    document.body.classList.toggle("tall", phone && tall);
+
     const hudOn = !document.getElementById("hud").classList.contains("hidden");
-    const box = sel => document.querySelector(sel).getBoundingClientRect();
-    const top = hudOn ? Math.max(box(".hud-box.tl").bottom, box(".hud-box.tr").bottom) + 2 : 0;
-    const bottom = hudOn ? window.innerHeight - Math.min(box(".hud-box.bl").top, box(".hud-box.br").top) + 2 : 0;
-    // On narrow screens, the guide and invites sit just under the top boxes.
-    document.getElementById("topcenter").style.top = (window.innerWidth < 760 && hudOn ? top : 8) + "px";
+    const rect = id => document.getElementById(id).getBoundingClientRect();
+    const tc = document.getElementById("topcenter");
+    let top = 0, bottom = H;
+    if (hudOn && phone) {
+      // Phone: the office goes between the top bar and the buttons.
+      // We measure the "Make a game" button, because it stays put even
+      // when the More menu is open.
+      const bar = rect("hud-top"), make = rect("btn-make");
+      top = bar.bottom;
+      if (tall) bottom = make.top - 8;
+      else top = Math.max(top, make.bottom + 6);
+      // The guide and messages sit under the top bar, pushing the office
+      // down a little so they never cover it.
+      tc.style.top = top + "px";
+      if (!tc.classList.contains("hidden") && tc.offsetHeight) top += tc.offsetHeight + 6;
+    } else if (hudOn) {
+      // Big screen: the office goes between the corner boxes.
+      const box = sel => document.querySelector(sel).getBoundingClientRect();
+      top = Math.max(box(".hud-box.tl").bottom, box(".hud-box.tr").bottom) + 2;
+      bottom = Math.min(box(".hud-box.bl").top, box(".hud-box.br").top) - 2;
+      tc.style.top = "";
+    }
     const wrap = document.getElementById("office-wrap");
     wrap.style.top = top + "px";
-    wrap.style.bottom = bottom + "px";
-    const scale = Math.min(window.innerWidth / WORLD_W, (window.innerHeight - top - bottom) / WORLD_H);
-    const s = scale;   // use all the room there is
-    this.canvas.style.width = Math.floor(WORLD_W * s) + "px";
-    this.canvas.style.height = Math.floor(WORLD_H * s) + "px";
+    wrap.style.bottom = (H - bottom) + "px";
+
+    // The room left for the office. (On sideways iPhones, style.css adds
+    // padding so the office stays clear of the notch and the home bar.)
+    const pad = getComputedStyle(wrap);
+    const roomW = W - 8 - parseFloat(pad.paddingLeft) - parseFloat(pad.paddingRight);
+    const roomH = bottom - top - parseFloat(pad.paddingTop) - parseFloat(pad.paddingBottom);
+    // One long room, or two floors? Pick whichever is bigger on screen.
+    const longScale = Math.min(roomW / WORLD_W, roomH / WORLD_H);
+    const foldScale = Math.min(roomW / FOLD_W, roomH / FOLD_H);
+    const fold = foldScale > longScale * 1.2;
+    if (fold !== this.folded) this.setFolded(fold);
+    const s = fold ? foldScale : longScale;
+    this.canvas.style.width = Math.floor(this.canvas.width * s) + "px";
+    this.canvas.style.height = Math.floor(this.canvas.height * s) + "px";
   },
 
   sectionX(stepId) {
@@ -433,6 +517,8 @@ const Office = {
       ctx.fillStyle = c.color;
       ctx.fillRect(Math.round(c.x), Math.round(c.y), 2, 2);
     }
+
+    this.show();
   },
 };
 
