@@ -27,6 +27,42 @@ function fmt(n) {
 }
 function money(n) { return "$" + fmt(n); }
 
+// ----- The calendar -----
+const MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+const MONTH_DAYS = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+
+// Turns a game day number into a date, like "March 14, Year 1".
+function fmtDate(day) {
+  let d = Math.floor(day || 0);
+  const year = Math.floor(d / 365) + 1;
+  d = d % 365;
+  let m = 0;
+  while (d >= MONTH_DAYS[m]) { d -= MONTH_DAYS[m]; m++; }
+  return MONTHS[m] + " " + (d + 1) + ", Year " + year;
+}
+
+// Turns a number of game days into "12 days", "1 month 4 days" or
+// "2 years 3 months". A month is 30 days and a year is 12 months.
+function fmtDays(days) {
+  days = Math.max(0, days || 0);
+  if (days < 1) {
+    const hours = Math.round(days * 24);
+    return hours <= 1 ? "less than an hour" : hours + " hours";
+  }
+  const plural = (n, word) => n + " " + word + (n === 1 ? "" : "s");
+  let d = Math.floor(days);
+  const years = Math.floor(d / 360); d -= years * 360;
+  const months = Math.floor(d / 30); d -= months * 30;
+  if (years > 0) return plural(years, "year") + (months ? " " + plural(months, "month") : "");
+  if (months > 0) return plural(months, "month") + (d ? " " + plural(d, "day") : "");
+  return plural(d, "day");
+}
+
+// Real seconds while playing, turned into game days.
+function secondsToDays(seconds) {
+  return seconds / CONFIG.secondsPerDay;
+}
+
 // A clock-style time, like "1h 05m" or "4m 30s".
 function fmtClock(seconds) {
   seconds = Math.max(0, Math.floor(seconds));
@@ -249,7 +285,7 @@ const UI = {
     $("hud-players").textContent = fmt(state.playersTotal);
     $("hud-players-rate").textContent = "+" + fmt(playerRate) + "/s";
     $("hud-fans").textContent = fmt(state.fans);
-    $("hud-time").textContent = fmtClock(state.playSeconds);
+    $("hud-time").textContent = fmtDate(state.day);
     $("btn-games").textContent = "Games (" + state.released.length + ")";
     $("hud-fans-rate").textContent = "+" + fmt(fanRate) + "/s";
     $("hud-level").textContent = lv.current.name;
@@ -270,7 +306,7 @@ const UI = {
     // Convention invite
     const toast = $("toast");
     if (state.event) {
-      const left = Math.max(0, Math.ceil((state.event.expiresAt - state.playSeconds) / 60));
+      const left = fmtDays(secondsToDays(Math.max(0, state.event.expiresAt - state.playSeconds)));
       const html = '<b>Invite: ' + esc(state.event.name) + '!</b> Show off a game for new players. (' + left + ' min left) ' +
         '<button class="btn small" data-act="open" data-name="event">Pick a game</button> <button class="btn small ghost" data-act="decline-event">No thanks</button>';
       if (toast.dataset.html !== html) { toast.innerHTML = html; toast.dataset.html = html; }
@@ -357,7 +393,7 @@ const UI = {
     let html = "";
     if (c.type === "away") {
       const a = c.data;
-      html = '<h2>While you were away</h2><p>You were gone for ' + fmtTime(a.seconds) + '. Your games kept selling!</p>' +
+      html = '<h2>While you were away</h2><p>You were gone for ' + fmtTime(a.seconds) + '. In the game, ' + fmtDays(a.days || 0) + ' went by. It\'s now ' + fmtDate(state.day) + '. Your games kept selling!</p>' +
         '<div class="away-grid"><div>Money</div><b>+' + money(a.money) + '</b><div>Players</div><b>+' + fmt(a.players) + '</b><div>Fans</div><b>+' + fmt(a.fans) + '</b>' +
         (a.bonus ? '<div>Welcome back bonus</div><b>+' + money(a.bonus) + '</b>' : "") + '</div>';
     } else if (c.type === "level") {
@@ -474,10 +510,10 @@ const UI = {
 
     html += '<label>Size</label><div class="choices">';
     for (const z of CONFIG.sizes) {
-      const minutes = CONFIG.devTimeSeconds * z.time / speedMultiplier(state) / 60;
-      const label = z.label + ' <span class="tag muted">' + (minutes < 1.5 ? Math.round(minutes * 60) + "s" : Math.round(minutes) + " min") + "</span>";
+      const days = secondsToDays(CONFIG.devTimeSeconds * z.time / speedMultiplier(state));
+      const label = z.label + ' <span class="tag muted">' + fmtDays(days) + "</span>";
       if (isUnlocked(state, z)) {
-        html += '<button class="choice' + (f.size === z.id ? " on" : "") + '" data-act="form-size" data-id="' + z.id + '" data-hint="' + esc(z.hint + " Takes about " + Math.round(minutes) + " minutes for one person.") + '">' + label + "</button>";
+        html += '<button class="choice' + (f.size === z.id ? " on" : "") + '" data-act="form-size" data-id="' + z.id + '" data-hint="' + esc(z.hint + " Takes about " + fmtDays(days) + " for one person.") + '">' + label + "</button>";
       } else {
         html += '<button class="choice locked" disabled data-hint="' + esc(z.hint + " Unlocks at " + CONFIG.levels[z.level - 1].name + ".") + '">🔒 ' + z.label + "</button>";
       }
@@ -511,11 +547,12 @@ const UI = {
   earningList(howMany) {
     if (!state.released.length) return "";
     const games = state.released.slice().sort((a, b) => playersPerSecondNow(b) * b.moneyPerPlayer - playersPerSecondNow(a) * a.moneyPerPlayer);
-    let total = 0;
-    for (const g of state.released) total += playersPerSecondNow(g) * g.moneyPerPlayer;
-    let html = "<h3>Your games right now · " + moneyRate(total) + "</h3>";
+    let total = 0, players = 0;
+    for (const g of state.released) { total += playersPerSecondNow(g) * g.moneyPerPlayer; players += playersPerSecondNow(g); }
+    let html = '<h3>Your games right now · <span class="pink">' + moneyRate(total) + '</span> · <span class="cyan">+' + fmt(players) + " players/s</span></h3>";
     for (const g of games.slice(0, howMany)) {
-      html += '<div class="mini-row"><span>' + esc(g.name) + '</span><span class="pink">' + moneyRate(playersPerSecondNow(g) * g.moneyPerPlayer) + "</span></div>";
+      html += '<div class="mini-row"><span>' + esc(g.name) + '</span><span><span class="pink">' + moneyRate(playersPerSecondNow(g) * g.moneyPerPlayer) +
+        '</span> · <span class="cyan">+' + fmt(playersPerSecondNow(g)) + " players/s</span></span></div>";
     }
     return html;
   },
@@ -537,7 +574,7 @@ const UI = {
         const nameOf = id => id === "you" ? "You" : esc((state.hires.find(h => h.id === id) || {}).name || "Someone");
         const people = [g.worker].concat(g.helpers || []).map(nameOf);
         const done = g.progress / stepDuration(state, g);
-        html += '<div class="muted">' + people.join(", ") + " · " + fmtClock(stepTimeLeft(state, g)) + " left</div>" + bar(done);
+        html += '<div class="muted">' + people.join(", ") + " · " + fmtDays(secondsToDays(stepTimeLeft(state, g))) + " left</div>" + bar(done);
         html += "</div>";
         if (g.worker === "you" && step.minigame && !g.boostUsed) {
           html += '<button class="btn small" data-act="minigame" data-id="' + g.id + '">Speed up!</button>';
@@ -593,9 +630,8 @@ const UI = {
         const sk = state.skills[s.id];
         const extra = s.id === "engines" ? " (+" + bestEngine(state).power + " from " + bestEngine(state).name + ")" : "";
         const gain = previewChange(state, usual, () => { sk.level += 1; }, () => { sk.level -= 1; });
-        const fact = s.id === "engines" ? '<div class="fact">Fun fact: ' + bestEngine(state).fact + "</div>" : "";
         html += '<div class="item"><div class="item-main"><b style="color:' + s.color + '">' + s.name + "</b> level " + sk.level + extra +
-          bar(sk.xp / xpNeeded(sk.level), s.color) + '<div class="gains">Next level: ' + gainLine(gain, ["players", "fans"]) + "</div>" + fact + "</div>" +
+          bar(sk.xp / xpNeeded(sk.level), s.color) + '<div class="gains">Next level: ' + gainLine(gain, ["players", "fans"]) + "</div></div>" +
           costButton("train", 'data-id="' + s.id + '"', trainCost(state, s.id), "Train") + "</div>";
       }
     }
@@ -610,7 +646,7 @@ const UI = {
           const gain = previewChange(state, usual, () => state.engines.push(e.id), () => state.engines.pop());
           gainHtml = '<div class="gains">Adds ' + gainLine(gain, ["players", "fans"]) + "</div>";
         }
-        html += '<div class="item"><div class="item-main"><b>' + e.name + "</b> <span class=\"muted\">+" + e.power + " Engines</span><div>Good for: " + e.good + "</div>" + gainHtml + '<div class="fact">Fun fact: ' + e.fact + "</div></div>" + right + "</div>";
+        html += '<div class="item"><div class="item-main"><b>' + e.name + "</b> <span class=\"muted\">+" + e.power + " Engines</span><div>Good for: " + e.good + "</div>" + gainHtml + "</div>" + right + "</div>";
       }
     }
     if (tab === "features") {
@@ -667,23 +703,23 @@ const UI = {
       html += "<h3>Being made (" + state.projects.length + ")</h3>";
       for (const p of state.projects) {
         const size = byId(CONFIG.sizes, p.size || "small").label;
-        const status = p.worker ? fmtClock(stepTimeLeft(state, p)) + " left on this step, " + workersOn(p) + (workersOn(p) === 1 ? " person" : " people") : "waiting for someone";
+        const status = p.worker ? fmtDays(secondsToDays(stepTimeLeft(state, p))) + " left on this step, " + workersOn(p) + (workersOn(p) === 1 ? " person" : " people") : "waiting for someone";
         html += '<div class="item"><div class="item-main"><b>' + esc(p.name) + '</b> <span class="muted">' + size + " · " + CONFIG.steps[p.step].name + '</span><div class="muted">' + status + "</div></div></div>";
       }
     }
-    let total = 0;
-    for (const g of state.released) total += playersPerSecondNow(g) * g.moneyPerPlayer;
-    html += "<h3>Released (" + state.released.length + ") · " + moneyRate(total) + "</h3>";
+    let total = 0, players = 0;
+    for (const g of state.released) { total += playersPerSecondNow(g) * g.moneyPerPlayer; players += playersPerSecondNow(g); }
+    html += "<h3>Released (" + state.released.length + ') · <span class="pink">' + moneyRate(total) + '</span> · <span class="cyan">+' + fmt(players) + " players/s</span></h3>";
     if (!state.released.length) html += '<p class="muted">No games out yet.</p>';
     for (const g of state.released.slice(0, 40)) {
       const genre = byId(CONFIG.genres, g.genre), price = byId(CONFIG.prices, g.price);
       const size = byId(CONFIG.sizes, g.size || "small").label;
       const stage = salesStage(g);
       const stageText = '<span class="stage stage-' + stage.name.toLowerCase() + '">' + stage.name + "</span>" +
-        (stage.next ? ' <span class="muted">' + stage.next + " in " + fmtClock(stage.secondsToNext) + "</span>" : "");
+        (stage.next ? ' <span class="muted">' + stage.next + " in " + fmtDays(secondsToDays(stage.secondsToNext)) + "</span>" : "");
       html += '<div class="item"><div class="item-main"><b>' + esc(g.name) + "</b> " + (g.bugs ? "🐞" : "") + ' <span class="muted">' + genre.name + " · " + size + " · " + price.label + "</span>" +
         '<div><span class="pink">' + moneyRate(playersPerSecondNow(g) * g.moneyPerPlayer) + '</span> · <span class="cyan">+' + fmt(playersPerSecondNow(g)) + " players/s</span> · " + fmt(g.players) + " players so far</div>" +
-        '<div class="muted">Out for ' + fmtClock(g.age) + " · " + stageText + "</div></div></div>";
+        '<div class="muted">Out for ' + fmtDays(g.days !== undefined ? g.days : secondsToDays(g.age)) + " · Launched " + fmtDate(g.launchDay || 0) + " · " + stageText + "</div></div></div>";
     }
     return { title: "Your games (" + state.released.length + ")", html: html };
   },

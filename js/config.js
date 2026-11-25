@@ -127,11 +127,11 @@ const CONFIG = {
   // ----- Engines ----------------------------------------------------
   // power is added to your Engines skill once you learn the engine.
   engines: [
-    { id: "scratch",   name: "Scratch",       level: 1, cost: 0,       power: 0,  good: "Learning to code by snapping blocks together.", fact: "Made at MIT so kids could learn to code." },
-    { id: "gamemaker", name: "GameMaker",     level: 2, cost: 20000,    power: 3,  good: "Fast 2D games.",               fact: "Undertale was made with GameMaker." },
-    { id: "godot",     name: "Godot",         level: 3, cost: 200000,   power: 7,  good: "Free 2D and simple 3D games.", fact: "It is free and open source, so anyone can help improve it." },
-    { id: "unity",     name: "Unity",         level: 4, cost: 2000000,  power: 12, good: "3D and mobile games.",         fact: "Among Us and Hollow Knight were made with Unity." },
-    { id: "unreal",    name: "Unreal Engine", level: 5, cost: 15000000, power: 20, good: "Huge, realistic 3D worlds.",   fact: "Made by Epic Games, the studio behind Fortnite." },
+    { id: "scratch",   name: "Scratch",       level: 1, cost: 0,       power: 0,  good: "Learning to code by snapping blocks together." },
+    { id: "gamemaker", name: "GameMaker",     level: 2, cost: 20000,    power: 3,  good: "Fast 2D games." },
+    { id: "godot",     name: "Godot",         level: 3, cost: 200000,   power: 7,  good: "Free 2D and simple 3D games." },
+    { id: "unity",     name: "Unity",         level: 4, cost: 2000000,  power: 12, good: "3D and mobile games." },
+    { id: "unreal",    name: "Unreal Engine", level: 5, cost: 15000000, power: 20, good: "Huge, realistic 3D worlds." },
   ],
 
   // ----- How many players a game gets -------------------------------
@@ -175,6 +175,15 @@ const CONFIG = {
     { id: "headphones", name: "Headphones",     levels: ["Cheap earbuds", "Studio headphones"],                    costs: [12000],        speed: 0.08 },
     { id: "coffee",     name: "Coffee machine", levels: ["No coffee machine", "Coffee machine"],                   costs: [8000],         speed: 0.08 },
   ],
+
+  // ----- The calendar -----------------------------------------------
+  // The game starts on January 1, Year 1. While you play, one game day
+  // passes every "secondsPerDay" real seconds (60 = 1 minute per day).
+  secondsPerDay: 60,
+  // While you're away, the calendar moves slower: one game day for every
+  // "awaySecondsPerDay" real seconds (3600 = 1 hour), so a week away is
+  // about half a year in the game instead of 27 years.
+  awaySecondsPerDay: 3600,
 
   // ----- Away from the game -----------------------------------------
   maxAwaySeconds: 7 * 24 * 3600,   // earnings count for up to 7 days
