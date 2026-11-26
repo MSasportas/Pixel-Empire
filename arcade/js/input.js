@@ -62,17 +62,28 @@ const Input = {
       if (this.pointers.size >= 2) {
         // Pinch: fingers apart = zoom in, together = zoom out
         const d = pinchDist();
-        if (d / this.pinchStart > 1.3) { handlers.onZoom(1); this.pinchStart = d; }
-        else if (d / this.pinchStart < 0.77) { handlers.onZoom(-1); this.pinchStart = d; }
+        if (d / this.pinchStart > 1.25) { handlers.onZoom(1); this.pinchStart = d; }
+        else if (d / this.pinchStart < 0.8) { handlers.onZoom(-1); this.pinchStart = d; }
         return;
       }
       if (!this.gesture.moved && Math.hypot(e.clientX - pt.sx, e.clientY - pt.sy) > 10) this.gesture.moved = true;
-      if (this.gesture.moved && !this.gesture.pinched) handlers.onPan(dx, dy);
+      if (this.gesture.moved && !this.gesture.pinched) {
+        handlers.onPan(dx, dy);
+        // Remember how fast the finger moves, for a glide after letting go
+        const now = performance.now(), t = Math.max(1, now - (this.lastMove || now - 16));
+        this.lastMove = now;
+        this.vel = { x: 0.6 * (this.vel ? this.vel.x : 0) + 0.4 * (dx / t * 1000), y: 0.6 * (this.vel ? this.vel.y : 0) + 0.4 * (dy / t * 1000) };
+      }
     });
     const lift = (e, cancel) => {
       if (!this.pointers.has(e.pointerId)) return;
       this.pointers.delete(e.pointerId);
       if (!cancel && this.pointers.size === 0 && this.gesture && !this.gesture.moved && !this.gesture.pinched) handlers.onTap(e.clientX, e.clientY);
+      if (this.pointers.size === 0 && this.gesture && this.gesture.moved && !this.gesture.pinched && this.vel && performance.now() - this.lastMove < 80) {
+        const sc = UI.scale;
+        handlers.onFling(-this.vel.x / sc, -this.vel.y / sc);
+      }
+      if (this.pointers.size === 0) this.vel = null;
     };
     canvas.addEventListener("pointerup", e => lift(e, false));
     canvas.addEventListener("pointercancel", e => lift(e, true));

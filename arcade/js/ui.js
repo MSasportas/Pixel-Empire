@@ -90,7 +90,7 @@ const UI = {
 
   init() {
     this.canvas = $("arcade");
-    this.ctx = this.canvas.getContext("2d");
+    this.ctx = this.canvas.getContext("2d", { alpha: false });
     this.labelCanvas = $("labels");
     try { this.zoom = parseInt(localStorage.getItem("pixelEmpireArcade.zoom") || "0", 10) || 0; } catch (e) { /* ignore */ }
     this.lctx = this.labelCanvas.getContext("2d");
@@ -102,7 +102,8 @@ const UI = {
       onMenu: () => { if (state && !Minigames.active) { if ($("panel").classList.contains("hidden")) this.openMenu(); else this.closePanel(); } },
       onTap: (cx, cy) => this.tap(cx, cy),
       onZoom: d => this.zoomBy(d),
-      onPan: (dx, dy) => this.panBy(dx, dy),
+      onPan: (dx, dy) => { this.fling = null; this.panBy(dx, dy); },
+      onFling: (vx, vy) => { this.fling = { x: vx, y: vy }; },
     });
     $("zoom-in").addEventListener("click", () => this.zoomBy(1));
     $("zoom-out").addEventListener("click", () => this.zoomBy(-1));
@@ -115,6 +116,17 @@ const UI = {
       this.act(b.dataset.act, b.dataset, b);
     });
     $("prompt").addEventListener("click", () => this.useTarget());
+    // Tap the dark area around a pop-up to close it
+    $("panel").addEventListener("click", e => { if (e.target === $("panel")) this.closePanel(); });
+    $("card").addEventListener("click", e => { if (e.target === $("card")) $("card").classList.add("hidden"); });
+    // A tiny buzz when you press a button (phones that support it)
+    document.addEventListener("pointerdown", e => {
+      const b = e.target.closest ? e.target.closest("button") : null;
+      if (b && !b.disabled && e.pointerType === "touch" && navigator.vibrate) navigator.vibrate(8);
+    });
+    // Makes :active (the pressed look) work right away on iPhones
+    document.addEventListener("touchstart", () => {}, { passive: true });
+    this.canvas.addEventListener("contextmenu", e => e.preventDefault());
   },
 
   // Makes the picture fill the window, with big crisp pixels.
@@ -128,7 +140,10 @@ const UI = {
     const normal = Math.max(phone ? 3 : 2, Math.floor(Math.min(innerWidth / 260, innerHeight / 170)));
     this.normalScale = normal;
     this.scale = Math.max(1, Math.min(10, normal + this.zoom));
-    this.dpr = window.devicePixelRatio || 1;
+    // Sharp labels, but at most 2x (3x phones would draw 2x more for no visible gain)
+    this.dpr = Math.min(2, window.devicePixelRatio || 1);
+    this.phone = phone;
+    document.body.classList.toggle("phone", phone);
     this.labelCanvas.width = Math.round(innerWidth * this.dpr);
     this.labelCanvas.height = Math.round(innerHeight * this.dpr);
     this.labelCanvas.style.width = innerWidth + "px";
@@ -140,6 +155,13 @@ const UI = {
     this.canvas.style.width = this.view.w * this.scale + "px";
     this.canvas.style.height = this.view.h * this.scale + "px";
     this.ctx.imageSmoothingEnabled = false;
+  },
+
+  // Sparkles and a word over a machine (after an upgrade or a new machine).
+  celebrate(m, word) {
+    const r = machineRect(m);
+    Art.burst(r.x + r.w / 2, r.y + r.h / 2);
+    Art.floats.push({ x: r.x + r.w / 2, y: r.y - 6, amount: 0, word: word, age: 0 });
   },
 
   // Zoom in (+1) or out (-1). Pixels stay whole numbers so the art stays sharp.
@@ -268,6 +290,7 @@ const UI = {
         this.unstickPlayer();
         this.closePanel();
         this.toast("Building " + esc(placed.name) + "! Walk up to it to build it faster.");
+        this.celebrate(placed, "NEW!");
       }
     }
     if (name === "swap" && m) {
@@ -276,7 +299,7 @@ const UI = {
     }
     if (name === "shop") this.openShop();
     if (name === "shop-unlock") { if (unlockNext(state)) { Sound.play("buy"); this.toast("You unlocked the " + CONFIG.machines[state.unlocked - 1].name + "! Walk to an empty square or swap a machine to place it."); this.openShop(); } }
-    if (name === "upgrade" && m) { if (buyUpgrade(state, m, data.id)) { Sound.play("buy"); this.openMachine(m); } }
+    if (name === "upgrade" && m) { if (buyUpgrade(state, m, data.id)) { Sound.play("level"); this.celebrate(m, "UPGRADED!"); this.openMachine(m); const it = $("panel").querySelector('[data-id="' + data.id + '"]'); const row = it ? it.closest(".item") : null; if (row) row.classList.add("flash"); } }
     if (name === "rename" && m) { renameMachine(m, $("machine-name").value); Sound.play("click"); this.openMachine(m); }
     if (name === "random-machine-name" && m) { $("machine-name").value = randomGameName(); }
     if (name === "remove" && m) {
@@ -534,7 +557,7 @@ const UI = {
     if (goal && goal.kind !== "spot" && !goal.point) points.push({ x: Math.max(goal.rect.x + 4, Math.min(goal.rect.x + goal.rect.w - 4, wx)), y: (goal.stand.y + 0.5) * T + 3 });
     else if (!goal && walkable(state, Math.floor(wx / T), Math.floor(wy / T))) points.push({ x: wx, y: wy });
     this.walkGoal = { points: points, target: goal };
-    this.pan = { x: 0, y: 0 };
+    this.pan = { x: 0, y: 0 }; this.fling = null;
     this.tapMark = { x: wx, y: wy, age: 0 };
   },
 
@@ -562,7 +585,7 @@ const UI = {
     let moved = false;
     if (v.x || v.y) {
       this.walkGoal = null;
-      this.pan = { x: 0, y: 0 };
+      this.pan = { x: 0, y: 0 }; this.fling = null;
       const nx = p.x + v.x * speed * dt, ny = p.y + v.y * speed * dt;
       if (this.canStand(nx, p.y)) { p.x = nx; moved = true; }
       if (this.canStand(p.x, ny)) { p.y = ny; moved = true; }
@@ -587,6 +610,13 @@ const UI = {
 
   frame(dt) {
     this.time += dt;
+    // After a quick swipe, the camera keeps gliding and slows down
+    if (this.fling) {
+      this.panBy(-this.fling.x * dt * this.scale, -this.fling.y * dt * this.scale);
+      const k = Math.exp(-5 * dt);
+      this.fling.x *= k; this.fling.y *= k;
+      if (Math.hypot(this.fling.x, this.fling.y) < 30) this.fling = null;
+    }
     Input.poll(dt);
     if (state) {
       tick(state, dt);
@@ -613,7 +643,7 @@ const UI = {
     // Leave room for the boxes at the top and the button at the bottom,
     // so they never hide machines.
     const box = state ? document.querySelector(".hud-box.tl").getBoundingClientRect() : null;
-    const padTop = box ? (box.bottom + 6) / this.scale : 0, padBottom = state ? 60 / this.scale : 0;
+    const padTop = box ? (box.bottom + 6) / this.scale : 0, padBottom = state ? (this.phone ? 96 : 60) / this.scale : 0;
     const minY = -padTop, maxY = worldH + padBottom - this.view.h;
     const pan = state ? this.pan : { x: 0, y: 0 };
     const bx = p.x - this.view.w / 2, by = p.y - 10 - this.view.h / 2;
@@ -664,7 +694,7 @@ const UI = {
         g.fillText(l.text, x, y - r + 1);
       } else if (l.kind === "float") {
         g.globalAlpha = l.alpha;
-        g.font = "800 " + Math.round(15 * z) + "px Nunito, sans-serif";
+        g.font = "900 " + Math.round((l.text.startsWith("+") ? 15 : 18) * z * (0.6 + 0.4 * (l.pop || 1))) + "px Nunito, sans-serif";
         g.lineWidth = 4; g.strokeStyle = "#0b0618"; g.strokeText(l.text, x, y);
         g.fillStyle = "#ffd23f"; g.fillText(l.text, x, y);
         g.globalAlpha = 1;
@@ -736,7 +766,13 @@ const UI = {
       this.toast("You can unlock the " + CONFIG.machines[state.unlocked].name + "! Tap <b>Shop</b>.", 7000);
     }
     $("btn-shop").classList.toggle("glow", (state.unlocked < CONFIG.machines.length && state.money >= CONFIG.machines[state.unlocked].unlock) || (full && nextRoomCost(state) !== null && state.money >= nextRoomCost(state)));
-    $("hud-time").textContent = fmtDate(state.day);
+    $("hud-time").textContent = this.phone ? fmtDate(state.day).replace(/^(\w{3})\w*/, "$1").replace(", Year ", " · Y") : fmtDate(state.day);
+    // The money box bumps when money comes in
+    if (state.money > (this.lastMoney || 0) + 0.5 && this.time - (this.lastBump || 0) > 0.35) {
+      const el = $("hud-money"); el.classList.remove("bump"); void el.offsetWidth; el.classList.add("bump");
+      this.lastBump = this.time;
+    }
+    this.lastMoney = state.money;
     const pr = $("prompt");
     const t = this.target;
     if (!t || this.overlayOpen()) { pr.classList.add("hidden"); return; }

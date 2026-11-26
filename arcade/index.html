@@ -2,7 +2,10 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <title>Pixel Empire Arcade (test)</title>
   <link rel="icon" href="../favicon.ico?v=2" sizes="16x16 32x32 48x48">
   <link rel="apple-touch-icon" href="../icons/apple-touch-icon.png?v=2">
@@ -13,6 +16,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@600;800;900&family=Press+Start+2P&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="css/style.css">
   <link rel="stylesheet" href="css/arcade.css">
+  <link rel="stylesheet" href="css/mobile.css">
 </head>
 <body>
   <!-- The arcade, drawn with pixel art -->
@@ -42,11 +46,11 @@
   <!-- The boxes in the corners -->
   <div id="hud" class="hidden">
     <div class="hud-box tl">
-      <div class="hud-line"><span class="hud-label">Money</span> <b id="hud-money" class="pink">$0</b> <span id="hud-rate" class="hud-rate"></span></div>
-      <div class="hud-line"><span class="hud-label">Customers</span> <b id="hud-customers" class="cyan">0</b></div>
-      <div class="hud-line"><span class="hud-label">Date</span> <span id="hud-time" class="hud-date"></span></div>
+      <div class="hud-line h-money"><span class="hud-icon">💰</span><span class="hud-label">Money</span> <b id="hud-money" class="pink">$0</b> <span id="hud-rate" class="hud-rate"></span></div>
+      <div class="hud-line h-cust"><span class="hud-icon">👥</span><span class="hud-label">Customers</span> <b id="hud-customers" class="cyan">0</b></div>
+      <div class="hud-line h-date"><span class="hud-icon">📅</span><span class="hud-label">Date</span> <span id="hud-time" class="hud-date"></span></div>
     </div>
-    <div class="hud-box tr"><button id="btn-shop" class="btn" data-act="shop">Shop</button> <button class="btn ghost" data-act="menu">Menu</button></div>
+    <div class="hud-box tr"><button id="btn-shop" class="btn" data-act="shop"><span class="btn-icon">🛒</span><span class="btn-text">Shop</span></button> <button id="btn-menu" class="btn ghost" data-act="menu"><span class="btn-icon">☰</span><span class="btn-text">Menu</span></button></div>
     <button id="prompt" class="hidden"></button>
     <!-- Zoom buttons (you can also pinch, use the mouse wheel, + and - keys, or the controller's bumpers) -->
     <div id="zoom-box">

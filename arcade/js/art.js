@@ -449,7 +449,13 @@ const Art = {
     }
 
     // "+$10" numbers
-    for (const f of this.floats) this.labels.push({ kind: "float", x: f.x, y: f.y - f.age * 12, alpha: Math.max(0, 1 - f.age / 1.2), text: "+$" + fmt(f.amount) });
+    for (const f of this.floats) this.labels.push({ kind: "float", x: f.x, y: f.y - f.age * 12, alpha: Math.max(0, 1 - f.age / 1.2), text: f.word || "+$" + fmt(f.amount), pop: f.word ? Math.min(1, f.age * 6) : 1 });
+    // Sparkles
+    for (const s of this.sparks) {
+      ctx.globalAlpha = Math.max(0, 1 - s.age / s.life);
+      px(ctx, s.x, s.y, s.size, s.size, s.color);
+    }
+    ctx.globalAlpha = 1;
 
     // Tap marker (phone): a ring where you tapped
     if (view.tapMark && view.tapMark.age < 0.6) {
@@ -473,7 +479,19 @@ const Art = {
     ctx.restore();
   },
 
+  sparks: [],
+  // A burst of colorful pixels (upgrades, new machines, fixes)
+  burst(x, y) {
+    const colors = [NEON.yellow, NEON.pink, NEON.cyan, NEON.green, "#ffffff"];
+    for (let i = 0; i < 26; i++) {
+      const a = Math.random() * Math.PI * 2, v = 25 + Math.random() * 55;
+      this.sparks.push({ x: x, y: y, vx: Math.cos(a) * v, vy: Math.sin(a) * v - 30, age: 0, life: 0.6 + Math.random() * 0.5, size: Math.random() < 0.3 ? 2 : 1, color: colors[i % colors.length] });
+    }
+  },
+
   update(dt) {
+    for (const s of this.sparks) { s.age += dt; s.x += s.vx * dt; s.y += s.vy * dt; s.vy += 90 * dt; }
+    this.sparks = this.sparks.filter(s => s.age < s.life);
     for (const f of this.floats) f.age += dt;
     this.floats = this.floats.filter(f => f.age < 1.2);
   },
