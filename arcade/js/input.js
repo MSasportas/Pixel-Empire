@@ -37,14 +37,52 @@ const Input = {
         if (!UI.overlayOpen()) { e.preventDefault(); handlers.onAction(); }
       }
       if (e.key === "Escape") handlers.onBack();
+      if ((e.key === "+" || e.key === "=") && !UI.overlayOpen()) handlers.onZoom(1);
+      if ((e.key === "-" || e.key === "_") && !UI.overlayOpen()) handlers.onZoom(-1);
     });
     window.addEventListener("keyup", e => { this.keys[e.key.toLowerCase()] = false; });
     window.addEventListener("blur", () => { this.keys = {}; });
 
+    // Touch and mouse on the arcade:
+    //   a quick tap = walk there,  drag = look around,  pinch = zoom
+    this.pointers = new Map();
+    const pinchDist = () => { const [a, b] = [...this.pointers.values()]; return Math.hypot(a.x - b.x, a.y - b.y); };
     canvas.addEventListener("pointerdown", e => {
       this.device = e.pointerType === "touch" ? "touch" : "mouse";
-      handlers.onTap(e.clientX, e.clientY);
+      try { canvas.setPointerCapture(e.pointerId); } catch (err) { /* ignore */ }
+      this.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY, sx: e.clientX, sy: e.clientY });
+      if (this.pointers.size === 1) this.gesture = { moved: false, pinched: false };
+      if (this.pointers.size === 2) { this.gesture.pinched = true; this.pinchStart = pinchDist(); }
     });
+    canvas.addEventListener("pointermove", e => {
+      const pt = this.pointers.get(e.pointerId);
+      if (!pt) return;
+      const dx = e.clientX - pt.x, dy = e.clientY - pt.y;
+      pt.x = e.clientX; pt.y = e.clientY;
+      if (this.pointers.size >= 2) {
+        // Pinch: fingers apart = zoom in, together = zoom out
+        const d = pinchDist();
+        if (d / this.pinchStart > 1.3) { handlers.onZoom(1); this.pinchStart = d; }
+        else if (d / this.pinchStart < 0.77) { handlers.onZoom(-1); this.pinchStart = d; }
+        return;
+      }
+      if (!this.gesture.moved && Math.hypot(e.clientX - pt.sx, e.clientY - pt.sy) > 10) this.gesture.moved = true;
+      if (this.gesture.moved && !this.gesture.pinched) handlers.onPan(dx, dy);
+    });
+    const lift = (e, cancel) => {
+      if (!this.pointers.has(e.pointerId)) return;
+      this.pointers.delete(e.pointerId);
+      if (!cancel && this.pointers.size === 0 && this.gesture && !this.gesture.moved && !this.gesture.pinched) handlers.onTap(e.clientX, e.clientY);
+    };
+    canvas.addEventListener("pointerup", e => lift(e, false));
+    canvas.addEventListener("pointercancel", e => lift(e, true));
+    // Mouse wheel zooms
+    let wheel = 0;
+    canvas.addEventListener("wheel", e => {
+      e.preventDefault();
+      wheel += e.deltaY;
+      if (Math.abs(wheel) >= 60) { handlers.onZoom(wheel < 0 ? 1 : -1); wheel = 0; }
+    }, { passive: false });
     window.addEventListener("pointermove", e => { if (e.pointerType === "mouse" && this.device === "gamepad" && Math.abs(e.movementX) + Math.abs(e.movementY) > 4) this.device = "mouse"; });
     window.addEventListener("gamepadconnected", () => { UI.toast("Controller connected! Use the stick to walk and A to play."); });
   },
@@ -92,6 +130,11 @@ const Input = {
     } else {
       this.showCursor(false);
       this.padMove = { x: ax || dx, y: ay || dy };
+      // Bumpers zoom (LB out, RB in). The right stick looks around.
+      if (pressed(4)) this.handlers.onZoom(-1);
+      if (pressed(5)) this.handlers.onZoom(1);
+      let rx = pad.axes[2] || 0, ry = pad.axes[3] || 0;
+      if (Math.hypot(rx, ry) > 0.25) this.handlers.onPan(-rx * 500 * dt, -ry * 500 * dt);
       if (pressed(0)) this.handlers.onAction();
       if (pressed(1)) this.handlers.onBack();
     }
