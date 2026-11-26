@@ -309,7 +309,7 @@ function drawMachine(ctx, state, m, time) {
   // Upgrades show on the machine itself: a silver base after the first
   // upgrade, a gold base and gold corners halfway, and a soft gold glow when
   // everything is bought. No signs floating over it.
-  const lv = upgradeLevel(m), tier = upgradeTier(lv);
+  const lv = upgradeLevel(m), tier = Math.max(upgradeTier(lv), m.type === "claw" && lookOn(state, "goldClaw") ? 2 : 0);
   if (tier > 0) {
     const metal = tier === 1 ? "#c9d2e3" : NEON.yellow, shade = tier === 1 ? "#7d879c" : "#b8860b";
     px(ctx, r.x, r.y + r.h - 3, r.w, 3, shade);
@@ -406,8 +406,9 @@ const Art = {
     for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
       const tile = map.tiles[y][x];
       if (tile === 1) {
-        px(ctx, x * T, y * T, T, T, (x + y) % 2 ? NEON.floor : NEON.floor2);
+        px(ctx, x * T, y * T, T, T, floorColor(state, x, y));
         this.carpet(ctx, x, y);
+        floorExtra(ctx, state, x, y, time);
       } else if (tile === 2) {
         px(ctx, x * T, y * T, T, T, "#161226");
         if (y === SIDEWALK_Y + 1 && x % 2 === 0) px(ctx, x * T + 2, y * T + 10, 10, 1, "#3a3358");
@@ -443,7 +444,7 @@ const Art = {
 
     // Front door mat and the arcade's neon sign on the street
     DOOR_X.forEach(x => px(ctx, x * T + 1, (SIDEWALK_Y - 1) * T + 4, T - 2, T - 6, "#3d1840"));
-    this.labels.push({ kind: "sign", x: DOOR_X[1] * T, y: (SIDEWALK_Y + 1.6) * T, text: state.name });
+    this.labels.push({ kind: "sign", x: DOOR_X[1] * T, y: (SIDEWALK_Y + 1.6) * T, text: state.name + (state.roadClaimed >= CONFIG.road.length ? " ★ FAME LEGEND" : "") + (state.counter >= 10 ? " 👑" : ""), style: signStyle(state, time) });
 
     // Arcade full: people wait in line outside the door, under a FULL sign
     const outside = [];
@@ -476,7 +477,7 @@ const Art = {
     }
 
     // Machines and people, drawn from back to front
-    const things = []; things.push(...outside);
+    const things = []; things.push(...outside, ...SystemsArt.things(ctx, state, time, this.labels));
     for (const m of state.machines) { const r = machineRect(m); things.push({ y: r.y + r.h - 1, draw: () => drawMachine(ctx, state, m, time) }); }
     for (const c of state.customers) things.push({ y: c.y, draw: () => {
       drawPerson(ctx, c.x, c.y, c.look, { walking: c.walking, phase: c.phase, seed: c.phase, back: c.mode === "line" || c.mode === "play" || (c.walking && c.dir === "up"), playing: c.mode === "play" && !state.outage, cheer: c.bubble === "heart" });
@@ -493,6 +494,7 @@ const Art = {
       ctx.fillRect(Math.round(p.x) - 7, Math.round(p.y), 1, 1);
       ctx.fillRect(Math.round(p.x) + 6, Math.round(p.y), 1, 1);
       drawPerson(ctx, p.x, p.y, state.look, { walking: p.walking, phase: p.phase, back: p.dir === "up" });
+      drawHat(ctx, p.x, p.y, state, p.dir === "up");
       // A little arrow over your head
       const ay = Math.round(p.y - 28 + Math.sin(time * 5) * 1.5);
       px(ctx, p.x - 2, ay, 5, 1, NEON.yellow); px(ctx, p.x - 1, ay + 1, 3, 1, NEON.yellow); px(ctx, p.x, ay + 2, 1, 1, NEON.yellow);

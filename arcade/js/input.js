@@ -148,6 +148,9 @@ const Input = {
       if (Math.hypot(rx, ry) > 0.25) this.handlers.onPan(-rx * 500 * dt, -ry * 500 * dt);
       if (pressed(0)) this.handlers.onAction();
       if (pressed(1)) this.handlers.onBack();
+      // X opens the Mechanics, Y opens the Fame Road.
+      if (pressed(2) && this.handlers.onMech) this.handlers.onMech();
+      if (pressed(3) && this.handlers.onFame) this.handlers.onFame();
     }
     if (pressed(9)) this.handlers.onMenu();
     this.padWas = pad.buttons.map(b => b.pressed);

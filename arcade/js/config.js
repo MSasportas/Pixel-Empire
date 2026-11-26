@@ -7,7 +7,7 @@
 // =====================================================================
 
 const CONFIG = {
-  startMoney: 550,             // just enough to unlock the claw machine and place one
+  startMoney: 100,             // you start with one claw machine, already working
   placeShare: 0.1,             // placing a machine costs this much of its unlock price
   autoSaveSeconds: 5,
 
@@ -17,7 +17,7 @@ const CONFIG = {
 
   // ----- Away from the arcade ---------------------------------------
   maxAwaySeconds: 7 * 24 * 3600,   // earnings count for up to 7 days
-  awayShare: 0.012,                // while away you earn this share of your usual money per minute
+  // (how much time away pays is set by the coin box: see boxShares below)
   welcomeBackAfterSeconds: 60,
 
   // ----- Customers ----------------------------------------------------
@@ -73,6 +73,71 @@ const CONFIG = {
   sign: { name: "Bright sign", about: "A bigger, brighter sign out front. More customers come in at once.",
     cost: [3000, 40000, 500000, 6000000], extra: [0, 6, 14, 24, 36] },
 
+  // ----- The Front Counter: the arcade's level --------------------------
+  // Upgrading it unlocks new machine types. Rooms, type upgrades and the
+  // Bright sign can only go as high as the counter allows.
+  // unlocks: how many machine types (from the list above) you have at that level.
+  counter: [
+    { cost: 0,        seconds: 0,     unlocks: 2,  maxRooms: 1, maxUpgrade: 1, maxSign: 0 },
+    { cost: 15000,    seconds: 15,    unlocks: 4,  maxRooms: 2, maxUpgrade: 1, maxSign: 1 },
+    { cost: 50000,    seconds: 30,    unlocks: 5,  maxRooms: 2, maxUpgrade: 2, maxSign: 1 },
+    { cost: 120000,   seconds: 45,    unlocks: 7,  maxRooms: 3, maxUpgrade: 2, maxSign: 2 },
+    { cost: 500000,   seconds: 60,    unlocks: 8,  maxRooms: 4, maxUpgrade: 3, maxSign: 2 },
+    { cost: 1500000,  seconds: 90,    unlocks: 9,  maxRooms: 4, maxUpgrade: 3, maxSign: 3 },
+    { cost: 4000000,  seconds: 120,   unlocks: 10, maxRooms: 5, maxUpgrade: 4, maxSign: 3 },
+    { cost: 10000000, seconds: 150,   unlocks: 11, maxRooms: 5, maxUpgrade: 4, maxSign: 4 },
+    { cost: 25000000, seconds: 180,   unlocks: 12, maxRooms: 6, maxUpgrade: 4, maxSign: 4 },
+    { cost: 75000000, seconds: 240,   unlocks: 12, maxRooms: 6, maxUpgrade: 4, maxSign: 4 },
+  ],
+
+  // ----- Mechanics: they do upgrade jobs (short: seconds to a few minutes) ---
+  mechanics: 2,                          // you start with 2 (a 3rd comes from the Fame Road)
+  typeJobSeconds: [15, 30, 60, 120],       // type upgrade level 1, 2, 3, 4
+  signJobSeconds: [20, 45, 90, 180],       // Bright sign level 1, 2, 3, 4
+  speedUpCut: 0.5,                       // the code game cuts up to half the time left
+  instantUnder: Infinity,                // a perfect run finishes any job right away
+
+  // ----- The coin box: money from time away waits here ------------------
+  boxShares: [0.012, 0.015, 0.018, 0.021, 0.024],   // box level 1 to 5
+  coinRush: { afterSeconds: 3600, bonus: 0.25, seconds: 15 },
+
+  // ----- Fame stars and the Fame Road -------------------------------------
+  stars: { counter: 50, power: 30, newType: 20, bug: 10, bugPerfect: 15, coinRush: 10, speedUp: 5,
+           happyEvery: 20, happyPerHour: 30 },
+  // Step k needs 15 + 5k stars. kind: coins (minutes of money), look, box, mechanic, builds, job.
+  road: [
+    { kind: "coins", minutes: 10 },
+    { kind: "look", look: "cap", name: "Neon cap (for you)" },
+    { kind: "coins", minutes: 15 },
+    { kind: "look", look: "floorCheck", name: "Neon checkerboard floor" },
+    { kind: "box", level: 2, name: "Coin box level 2" },
+    { kind: "coins", minutes: 20 },
+    { kind: "look", look: "signCyan", name: "Cyan sign" },
+    { kind: "builds", count: 3, name: "Instant build ×3" },
+    { kind: "coins", minutes: 30 },
+    { kind: "look", look: "overalls", name: "Racing overalls (Mechanics)" },
+    { kind: "coins", minutes: 30 },
+    { kind: "mechanic", name: "A 3rd Mechanic" },
+    { kind: "look", look: "floorStars", name: "Starfield floor" },
+    { kind: "box", level: 3, name: "Coin box level 3" },
+    { kind: "coins", minutes: 45 },
+    { kind: "look", look: "goldClaw", name: "Gold trim on every claw machine" },
+    { kind: "builds", count: 5, name: "Instant build ×5" },
+    { kind: "coins", minutes: 45 },
+    { kind: "look", look: "signRainbow", name: "Rainbow sign" },
+    { kind: "coins", minutes: 60 },
+    { kind: "look", look: "shades", name: "Star sunglasses (for you)" },
+    { kind: "box", level: 4, name: "Coin box level 4" },
+    { kind: "coins", minutes: 60 },
+    { kind: "look", look: "floorLava", name: "Lava lamp floor" },
+    { kind: "look", look: "robot", name: "Robot mascot" },
+    { kind: "coins", minutes: 90 },
+    { kind: "job", name: "Finish one Mechanic job now" },
+    { kind: "coins", minutes: 90 },
+    { kind: "look", look: "crown", name: "Crown (for you)" },
+    { kind: "box", level: 5, name: "Coin box level 5 and \"Fame Legend\" on your sign" },
+  ],
+
   // Random customer looks and the made-up names (same lists as the studio game).
   look: {
     hair:  ["#2b1d14", "#5a3825", "#a0522d", "#e8c15a", "#f2f2f2", "#ff4fa3", "#3ee8ff", "#8a5cff"],
@@ -116,6 +181,6 @@ const CONFIG = {
 
 // Add ?test to the address to make bugs and power outages happen fast.
 CONFIG.testMode = typeof location !== "undefined" && /[?&]test\b/.test(location.search);
-if (CONFIG.testMode) { CONFIG.bugMinutes = [1, 2]; CONFIG.outageMinutes = [3, 4]; }
+if (CONFIG.testMode) { CONFIG.bugMinutes = [1, 2]; CONFIG.outageMinutes = [3, 4]; CONFIG.coinRush.afterSeconds = 60; }
 
 if (typeof module !== "undefined") module.exports = CONFIG;

@@ -80,10 +80,26 @@ function typeUpgradeRows(type) {
   for (const u of CONFIG.upgrades) {
     const cost = upgradeCost(stub, u.id), lvl = stub.up[u.id];
     const dots = "●".repeat(lvl) + "○".repeat(u.cost.length - lvl);
-    html += '<div class="item up-row"><div class="item-main"><b>' + u.name + '</b> <span class="dots">' + dots + "</span><br>" + upgradeEffect(stub, u) + "</div>" +
-      (cost === null ? '<span class="owned">MAX</span>' : costButton("upgrade", 'data-type="' + type + '" data-id="' + u.id + '"', cost, "")) + "</div>";
+    const job = jobFor(state, "type", type, u.id), block = cost === null ? "" : upgradeBlock(state, type, u.id);
+    let right;
+    if (cost === null) right = '<span class="owned">MAX</span>';
+    else if (job) right = '<span class="owned job-left" data-job="' + job.id + '">🔧 ' + fmtClock(job.left) + "</span>";
+    else right = jobButton("upgrade", 'data-type="' + type + '" data-id="' + u.id + '"', cost, CONFIG.typeJobSeconds[lvl], block);
+    html += '<div class="item up-row"><div class="item-main"><b>' + u.name + '</b> <span class="dots">' + dots + "</span><br>" + upgradeEffect(stub, u) + "</div>" + right + "</div>";
   }
   return html;
+}
+// A button that gives a Mechanic a job: "$1,500 · 10 min", or why you can't yet.
+function jobButton(act, attrs, cost, seconds, block) {
+  if (block && block !== "") return '<span class="muted small-note block-note">' + (/Mechanics/.test(block) ? "🔧 " : "🔒 ") + block + "</span>";
+  const cant = state.money < cost;
+  return '<button class="btn' + (cant ? " cant" : "") + '" data-act="' + act + '" ' + attrs + (cant ? " disabled" : "") + ">" + money(cost) + ' <span class="job-time">· ' + fmtDuration(seconds) + "</span></button>";
+}
+function fmtDuration(sec) {
+  if (sec < 60) return Math.round(sec) + " s";
+  if (sec < 3600) { const m = Math.floor(sec / 60), s = Math.round(sec % 60); return m + " min" + (s ? " " + s + " s" : ""); }
+  const h = sec / 3600;
+  return (Number.isInteger(h) ? h : h.toFixed(1)) + " h";
 }
 function plural(name) { return /s$/.test(name) ? name : name + "s"; }
 function playersText(d) { return d.players === 1 ? "1 player" : d.players + " players"; }
@@ -112,6 +128,8 @@ const UI = {
       onBack: () => this.back(),
       onMenu: () => { if (state && !Minigames.active) { if ($("panel").classList.contains("hidden")) this.openMenu(); else this.closePanel(); } },
       onTap: (cx, cy) => this.tap(cx, cy),
+      onMech: () => { if (state) this.openMechanics(); },
+      onFame: () => { if (state) this.openFame(); },
       onZoom: d => this.zoomBy(d),
       onPan: (dx, dy) => { this.fling = null; this.panBy(dx, dy); },
       onFling: (vx, vy) => { this.fling = { x: vx, y: vy }; },
@@ -261,8 +279,10 @@ const UI = {
     this.fit(); this.snapCamera = true;
     const away = catchUp(state);
     if (away && away.seconds >= CONFIG.welcomeBackAfterSeconds) this.showAway(away);
+    this.mechs = []; this.robot = null;
+    if (state.coinBox > 0) this.free = { x: (COUNTER.x + 1) * T, y: COUNTER.y * T };
     if (state.outage) this.banner("POWER OUTAGE!", "Walk to the fuse box by the front door");
-    if (state.machines.length === 0 && state.unlocked === 0) this.toast("Walk up to a glowing square and press Space, A, or tap it to add a game!", 8000);
+    if (state.machines.length <= 1 && state.playSeconds < 5) this.toast("Your first claw machine is ready! Walk up to a glowing square and press Space, A, or tap it to add another game.", 8000);
     this.save();
   },
 
@@ -287,7 +307,8 @@ const UI = {
     if (name === "close") this.closePanel();
     if (name === "card-close") $("card").classList.add("hidden");
     if (name === "menu") this.openMenu();
-    if (name === "quit") { this.save(); this.closePanel(); this.showTitle(); }
+    if (name === "quit") { this.save(); this.closePanel(); this.goodbye(); }
+    if (name === "goodbye-ok") { $("card").classList.add("hidden"); this.showTitle(); }
     if (name === "music") { Sound.setMusic(!Sound.musicOn); this.saveSound(); this.openMenu(); }
     if (name === "sounds") { Sound.setSounds(!Sound.soundsOn); this.saveSound(); this.openMenu(); }
 
@@ -318,14 +339,13 @@ const UI = {
     if (name === "shop") this.openShop();
     if (name === "shop-unlock") { if (unlockNext(state)) { Sound.play("buy"); this.toast("You unlocked the " + CONFIG.machines[state.unlocked - 1].name + "! Walk to an empty square or swap a machine to place it."); this.openShop(); } }
     if (name === "upgrade" && data.type) {
-      if (buyUpgrade(state, typeStub(state, data.type), data.id)) {
-        Sound.play("level");
-        for (const x of state.machines) if (x.type === data.type && x.status !== "building") this.celebrate(x, "UPGRADED!");
+      const job = buyUpgrade(state, typeStub(state, data.type), data.id);
+      if (job) {
+        Sound.play("buy"); this.jobStarted(job);
         if (this.panelKind === "shop") this.openShop(); else if (m) this.openMachine(m);
-        const it = $("panel").querySelector('[data-type="' + data.type + '"][data-id="' + data.id + '"]'); const row = it ? it.closest(".item") : null; if (row) row.classList.add("flash");
       }
     }
-    if (name === "sign") { if (buySign(state)) { Sound.play("level"); this.toast("Your sign is brighter! More customers can come in."); this.openShop(); } }
+    if (name === "sign") { const job = buySign(state); if (job) { Sound.play("buy"); this.jobStarted(job); this.openShop(); } }
     if (name === "rename" && m) { renameMachine(m, $("machine-name").value); Sound.play("click"); this.openMachine(m); }
     if (name === "random-machine-name" && m) { $("machine-name").value = randomGameName(); }
     if (name === "remove" && m) {
@@ -336,22 +356,28 @@ const UI = {
       this.closePanel();
       Minigames.start("code", machineDef(m).color, score => {
         speedUpBuild(state, m, score);
+        addStars(state, CONFIG.stars.speedUp); this.starsToast(CONFIG.stars.speedUp);
         if (score >= 1) this.toast("PERFECT! " + esc(m.name) + " is ready!");
       });
     }
     if (name === "fix" && m) {
       this.closePanel();
       Minigames.start("bugs", "#7cff6b", score => {
-        if (score >= CONFIG.bugFixScore) { fixBug(state, m); Sound.play("step"); this.toast(esc(m.name) + " is fixed!"); }
+        if (score >= CONFIG.bugFixScore) {
+          fixBug(state, m); Sound.play("step");
+          const st = score >= 1 ? CONFIG.stars.bugPerfect : CONFIG.stars.bug;
+          addStars(state, st); this.toast(esc(m.name) + " is fixed! +" + st + " ⭐");
+        }
       });
     }
+    this.systemAct(name, data, button);
     if (name === "buy-room") {
       if (buyRoom(state)) { Sound.play("level"); this.closePanel(); this.fit(); this.banner("NEW ROOM!", "Room " + state.rooms + " is open"); }
     }
     if (name === "maze") {
       this.closePanel();
       Minigames.start("maze", "#ffd23f", score => {
-        if (score >= 1) { fixOutage(state); Sound.play("level"); this.toast("The power is back on!"); $("banner").classList.add("hidden"); }
+        if (score >= 1) { fixOutage(state); addStars(state, CONFIG.stars.power); Sound.play("level"); this.toast("The power is back on! +" + CONFIG.stars.power + " ⭐"); $("banner").classList.add("hidden"); }
       });
     }
   },
@@ -398,7 +424,7 @@ const UI = {
     if (next) {
       html += '<div class="item locked"><div class="mini-machine" style="--c:' + next.color + '"></div><div class="item-main"><b class="m-name">🔒 ' + next.name + '</b><br>' +
         '<span class="muted">' + playersText(next) + " · " + squaresText(next) + " · " + money(next.price) + " a play</span></div>" +
-        costButton("unlock", "", next.unlock, "Unlock") + "</div>";
+        '<button class="btn ghost small" data-act="counter">🔒 Counter level ' + counterLevelFor(state, c => c.unlocks > state.unlocked) + "</button></div>";
       const left = CONFIG.machines.length - state.unlocked - 1;
       if (left > 0) html += '<p class="muted center">' + left + " more machines to unlock after that</p>";
     }
@@ -442,13 +468,13 @@ const UI = {
     const cap = capacity(state), full = state.customers.length >= cap;
     let html = '<div class="status-box' + (full ? " bug" : "") + '">👥 <b>' + state.customers.length + " / " + cap + "</b> customers" + (full ? ' · <b class="pink">FULL</b>, people are waiting outside!' : "") +
       '<br><span class="muted">Every seat on a machine lets 1 more person in. A brighter sign lets in even more.</span></div>';
+    html += this.counterShopItem();
     html += "<h3>Machines</h3>";
     CONFIG.machines.forEach((d, i) => {
       const info = '<span class="muted">' + playersText(d) + " · " + squaresText(d) + " · " + money(d.price) + " a play</span>";
       let right;
       if (i < state.unlocked) right = '<span class="owned">✓ Unlocked</span>';
-      else if (i === state.unlocked) right = costButton("shop-unlock", "", d.unlock, "Unlock");
-      else right = '<span class="muted small-note">🔒 ' + money(d.unlock) + "</span>";
+      else right = '<span class="muted small-note block-note">🔒 Counter level ' + counterLevelFor(state, c => c.unlocks > i) + "</span>";
       html += '<div class="item' + (i > state.unlocked ? " dim" : "") + '"><div class="mini-machine" style="--c:' + d.color + '"></div><div class="item-main"><b class="m-name">' + d.name + "</b><br>" + info + "</div>" + right + "</div>";
     });
     html += '<p class="muted">Placing a machine costs a little extra. Walk to an empty square, or open a machine and swap it.</p>';
@@ -462,16 +488,18 @@ const UI = {
     const sc = signCost(state), sl = state.sign || 0;
     html += '<div class="item"><div class="item-main"><b class="m-name">💡 ' + CONFIG.sign.name + '</b> <span class="dots">' + "●".repeat(sl) + "○".repeat(CONFIG.sign.cost.length - sl) + '</span><br><span class="muted">' + CONFIG.sign.about + "</span>" +
       (sc === null ? "" : '<br><span class="effect">Customers: +' + CONFIG.sign.extra[sl] + " → <b>+" + CONFIG.sign.extra[sl + 1] + "</b></span>") + "</div>" +
-      (sc === null ? '<span class="owned">MAX</span>' : costButton("sign", "", sc, "")) + "</div>";
+      (sc === null ? '<span class="owned">MAX</span>' : jobFor(state, "sign") ? '<span class="owned job-left" data-job="' + jobFor(state, "sign").id + '">🔧 ' + fmtClock(jobFor(state, "sign").left) + "</span>" : jobButton("sign", "", sc, CONFIG.signJobSeconds[sl], signBlock(state))) + "</div>";
     const cost = nextRoomCost(state);
     if (cost === null) html += "<p>Your arcade has every room!</p>";
-    else html += '<div class="item"><div class="item-main"><b class="m-name">Room ' + (state.rooms + 1) + '</b><br><span class="muted">Space for 16 more machines (and the customers they bring)</span></div>' + costButton("buy-room", "", cost, "Buy") + "</div>";
+    else html += '<div class="item"><div class="item-main"><b class="m-name">Room ' + (state.rooms + 1) + '</b><br><span class="muted">Space for 16 more machines (and the customers they bring)</span></div>' +
+      (roomBlock(state) ? '<span class="muted small-note block-note">🔒 ' + roomBlock(state) + "</span>" : costButton("buy-room", "", cost, "Buy")) + "</div>";
     this.openPanel("Shop", html);
   },
 
   openRoom() {
     this.panelKind = "room";
     const cost = nextRoomCost(state);
+    if (roomBlock(state)) { this.openPanel("A new room", "<p>Room " + (state.rooms + 1) + " has space for 16 more machines.</p><p class=\"pink\">🔒 " + roomBlock(state) + '. Upgrade your Front Counter first.</p><div class="row"><button class="btn" data-act="counter">Go to the Front Counter</button></div>'); return; }
     const can = state.money >= cost;
     this.openPanel("A new room", '<p>Room ' + (state.rooms + 1) + ' has space for 16 more machines. Every machine you put in lets more customers come in.</p>' +
       '<div class="row"><button class="btn big' + (can ? " glow" : " cant") + '" data-act="buy-room"' + (can ? "" : " disabled") + ">Buy it for " + money(cost) + "</button></div>" +
@@ -490,19 +518,17 @@ const UI = {
     this.openPanel("Menu",
       '<p><b class="yellow">' + esc(state.name) + "</b><br>" + fmtDate(state.day) + " · " + money(state.totalEarned) + " earned so far</p>" +
       '<div class="row"><button class="btn ghost" data-act="music">Music: ' + (Sound.musicOn ? "ON" : "OFF") + '</button> <button class="btn ghost" data-act="sounds">Sounds: ' + (Sound.soundsOn ? "ON" : "OFF") + "</button></div>" +
-      "<h3>Controls</h3><p class=\"muted\">Keyboard: arrow keys or WASD to walk, Space to use.<br>Controller: stick to walk, A to use, B to go back.<br>Phone: tap where you want to go.</p>" +
+      "<h3>Controls</h3><p class=\"muted\">Keyboard: arrow keys or WASD to walk, Space to use.<br>Controller: stick to walk, A to use, B to go back, X for Mechanics, Y for the Fame Road.<br>Phone: tap where you want to go.</p>" +
       '<div class="row"><button class="btn" data-act="quit">Save and go to the title</button> <a class="btn ghost" href="../">Play the studio game</a></div>' +
       '<p class="muted small-note">This is the arcade test version. It has its own saves and never touches your studio game saves.</p>');
   },
 
   showAway(r) {
-    let html = '<div class="panel card-box"><h2>Welcome back!</h2><p>You were away for ' + fmtAway(r.seconds) + ".</p>" +
-      '<div class="away-grid"><span>Customers paid</span><b>' + money(r.money) + "</b>";
-    if (r.built) html += "<span>Machines built</span><b>" + r.built + "</b>";
-    if (r.bugs) html += "<span>A machine caught a bug</span><b>🐞</b>";
-    html += "</div>";
+    let html = '<div class="panel card-box"><h2>Welcome back!</h2><p>You were away for ' + fmtAway(r.seconds) + ".</p>";
+    html += '<p class="green">🪙 <b>' + money(state.coinBox) + "</b> is waiting in the coin box on the Front Counter. Tap it to collect!</p>";
+    if (r.jobs && r.jobs.length) html += '<p>🔧 Your Mechanics finished: ' + r.jobs.map(j => "<b>" + esc(jobName(j)) + "</b>").join(", ") + ".</p>";
+    if (r.bugs) html += '<p class="muted">🐞 One machine caught a bug. It plays at half speed until you fix it.</p>';
     if (r.outage) html += '<p class="pink">The power is out! Nothing runs until you fix the fuse box.</p>';
-    else if (r.bugs) html += '<p class="muted">The bugged machine plays at half speed until you fix it.</p>';
     html += '<div class="row"><button class="btn big" data-act="card-close">Let\'s go!</button></div></div>';
     $("card").innerHTML = html;
     $("card").classList.remove("hidden");
@@ -540,6 +566,7 @@ const UI = {
     if (state.rooms < 6) for (let j = 0; j < state.rooms; j++) if (roomsTouch(j, state.rooms))
       for (const d of doorsBetween(j, state.rooms)) list.push({ kind: "room", stand: { x: d.sx, y: d.sy }, rect: { x: d.x * T, y: d.y * T, w: T, h: T }, point: true });
     list.push({ kind: "fuse", stand: { x: FUSE.x, y: FUSE.y - 1 }, rect: { x: FUSE.x * T, y: FUSE.y * T, w: T, h: T }, point: true });
+    list.push({ kind: "counter", stand: { x: COUNTER.x + 1, y: COUNTER.y - 1 }, rect: counterRect() });
     return list;
   },
 
@@ -565,6 +592,7 @@ const UI = {
     if (t.kind === "machine") this.openMachine(t.m);
     if (t.kind === "room") this.openRoom();
     if (t.kind === "fuse") this.openFuse();
+    if (t.kind === "counter") this.openCounter();
   },
 
   // Tap (or click) the arcade: walk there. Tap a machine or spot: walk
@@ -662,9 +690,11 @@ const UI = {
         if (ev.type === "built") { this.toast(esc(ev.machine.name) + " is ready to play!"); Sound.play("step"); }
         if (ev.type === "bug") { this.toast("🐞 " + esc(ev.machine.name) + " caught a bug! Walk over and fix it."); Sound.play("nope"); }
         if (ev.type === "outage") { this.banner("POWER OUTAGE!", "Walk to the fuse box by the front door"); Sound.play("nope"); }
+        if (ev.type === "job") this.jobDone(ev.job);
       }
       state.events.length = 0;
       this.movePlayer(dt);
+      this.updateMechanics(dt);
       this.target = this.findTarget();
       this.updateHud();
       this.refreshPanel(dt);
@@ -741,8 +771,9 @@ const UI = {
         pill(x, y, l.text, l.color, "800 " + Math.round(13 * z) + "px Nunito, sans-serif");
       } else if (l.kind === "sign") {
         g.font = "900 " + Math.round(20 * z) + "px Nunito, sans-serif";
-        g.shadowColor = "#ff3ea5"; g.shadowBlur = 12;
-        g.fillStyle = "#ff8fcb"; g.fillText(l.text.toUpperCase(), x, y);
+        const st = l.style || { color: "#ff8fcb", glow: "#ff3ea5" };
+        g.shadowColor = st.glow; g.shadowBlur = 12;
+        g.fillStyle = st.color; g.fillText(l.text.toUpperCase(), x, y);
         g.shadowBlur = 0;
       } else if (l.kind === "sale") {
         g.font = "900 " + Math.round(22 * z) + "px Nunito, sans-serif";
@@ -775,7 +806,7 @@ const UI = {
 
   updateHud() {
     $("hud-money").textContent = money(state.money);
-    $("hud-rate").textContent = "+$" + shortNumber(state.rate * 60) + " a minute";
+    $("hud-rate").textContent = "+$" + shortNumber(state.rate * 60) + (this.phone ? "/min" : " a minute");
     const full = state.customers.length >= capacity(state);
     $("hud-customers").textContent = state.customers.length + " / " + capacity(state) + (full ? " FULL" : "");
     document.querySelector(".h-cust").classList.toggle("full", full);
@@ -789,11 +820,12 @@ const UI = {
       state.hints.upgrade = true;
       this.toast("You can upgrade your machines! Tap <b>Shop</b>, or walk up to a machine that twinkles.", 7000);
     }
-    if (!state.hints.unlock && state.unlocked < CONFIG.machines.length && state.unlocked > 0 && state.money >= CONFIG.machines[state.unlocked].unlock) {
-      state.hints.unlock = true;
-      this.toast("You can unlock the " + CONFIG.machines[state.unlocked].name + "! Tap <b>Shop</b>.", 7000);
+    if (!state.hints.counter && nextCounter(state) && state.money >= nextCounter(state).cost) {
+      state.hints.counter = true;
+      this.toast("You can upgrade the <b>Front Counter</b> by the door! It unlocks new machines.", 7000);
     }
-    $("btn-shop").classList.toggle("glow", (state.unlocked < CONFIG.machines.length && state.money >= CONFIG.machines[state.unlocked].unlock) || (full && ((nextRoomCost(state) !== null && state.money >= nextRoomCost(state)) || (signCost(state) !== null && state.money >= signCost(state)))));
+    const shopGlow = full && ((nextRoomCost(state) !== null && state.money >= nextRoomCost(state) && !roomBlock(state)) || (signCost(state) !== null && state.money >= signCost(state) && !signBlock(state)));
+    this.updateSystemsHud(shopGlow);
     $("hud-time").textContent = this.phone ? fmtDate(state.day).replace(/^(\w{3})\w*/, "$1").replace(", Year ", " · Y") : fmtDate(state.day);
     // The money box bumps when money comes in
     if (state.money > (this.lastMoney || 0) + 0.5 && this.time - (this.lastBump || 0) > 0.35) {
@@ -809,6 +841,7 @@ const UI = {
     if (t.kind === "machine") text = t.m.status === "ok" && canAffordUpgrade(state, t.m) ? "⬆ Upgrade " + esc(t.m.name) : esc(t.m.name) + (t.m.status === "building" ? " · Build it faster" : t.m.status === "bug" ? " · Fix the bug!" : "");
     if (t.kind === "room") text = "Buy a new room · " + money(nextRoomCost(state));
     if (t.kind === "fuse") text = state.outage ? "Fix the power!" : "Fuse box";
+    if (t.kind === "counter") text = state.coinBox > 0 ? "🪙 Collect " + money(state.coinBox) : "Front Counter · level " + state.counter;
     const key = Input.device === "gamepad" ? '<span class="key pad">A</span>' : Input.device === "touch" ? '<span class="key">TAP</span>' : '<span class="key">SPACE</span>';
     const html = key + " " + text;
     if (pr.innerHTML !== html) pr.innerHTML = html;
@@ -832,7 +865,9 @@ const UI = {
     }
     if ($("panel-money") && state) $("panel-money").textContent = money(state.money);
     // Buttons that turn on once you have enough money
-    document.querySelectorAll("#panel [data-act=unlock], #panel [data-act=upgrade], #panel [data-act=buy-room], #panel [data-act=place], #panel [data-act=swap], #panel [data-act=shop-unlock]").forEach(b => {
+    document.querySelectorAll("#panel .job-left").forEach(el => { const j = state.jobs.find(x => x.id === el.dataset.job); if (j) el.textContent = "🔧 " + fmtClock(j.left); });
+    if (this.panelKind === "counter" || this.panelKind === "mechanics") { this[this.panelKind === "counter" ? "openCounter" : "openMechanics"](); return; }
+    document.querySelectorAll("#panel [data-act=upgrade], #panel [data-act=sign], #panel [data-act=counter-up], #panel [data-act=buy-room], #panel [data-act=place], #panel [data-act=swap]").forEach(b => {
       const m = b.textContent.match(/\$([\d,]+)/);
       if (!m) return;
       const can = state.money >= +m[1].replace(/,/g, "");
