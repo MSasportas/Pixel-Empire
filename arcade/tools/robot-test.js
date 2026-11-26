@@ -33,10 +33,11 @@ for (time = 0; time < HOURS * 3600; time += dt) {
     const type = bestFor(room, row, col);
     if (type) placeMachine(s, type, room, row, col);
   }
+  const best = CONFIG.machines[s.unlocked - 1];
   // Swap a whole row of old machines for the best one now and then
   const idx = m => CONFIG.machines.findIndex(d => d.id === m.type);
   const weak = s.machines.find(m => m.status !== "building" && idx(m) < s.unlocked - 1);
-  if (weak) {
+  if (weak && best && s.money > placeCost(best.id) * 10) {
     const row = s.machines.filter(m => m.room === weak.room && m.row === weak.row);
     if (row.every(m => m.status !== "building")) row.forEach(m => removeMachine(s, m));
   }

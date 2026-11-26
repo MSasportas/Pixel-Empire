@@ -201,10 +201,10 @@ function machineOpen(state, m) { return m.status !== "building"; }
 function machineRunning(state, m) { return m.status !== "building" && !state.outage; }
 
 // Which machine spots in a room are free. Returns a set of "row,col".
-function takenSpots(state, room) {
+function takenSpots(state, room, ignore) {
   const taken = new Set();
   for (const m of state.machines) {
-    if (m.room !== room) continue;
+    if (m.room !== room || m === ignore) continue;
     const d = machineDef(m);
     for (let i = 0; i < d.w; i++) taken.add(m.row + "," + (m.col + i));
     // A VR pod in the top row also covers... (only its own row counts as a spot)
@@ -213,15 +213,15 @@ function takenSpots(state, room) {
 }
 
 // Can machine type "type" go at room/row/col? Returns "" if yes, or why not.
-function cantPlace(state, type, room, row, col) {
+function cantPlace(state, type, room, row, col, ignore) {
   const d = byId(CONFIG.machines, type);
   if (col + d.w > SLOTS_PER_ROW) return "Needs " + d.w + " squares in a row";
-  const taken = takenSpots(state, room);
+  const taken = takenSpots(state, room, ignore);
   for (let i = 0; i < d.w; i++) if (taken.has(row + "," + (col + i))) return "Needs " + d.w + " free squares in a row";
   if (d.h > 1) {
     // The square below must be free of anything else big.
     const o = roomOrigin(room);
-    for (const m of state.machines) for (const c of machineCells(m))
+    for (const m of state.machines) if (m !== ignore) for (const c of machineCells(m))
       for (let i = 0; i < d.w; i++) if (c.x === o.x + 1 + col + i && c.y === o.y + SLOT_ROWS[row] + 1) return "Not enough room";
   }
   return "";
@@ -230,10 +230,20 @@ function cantPlace(state, type, room, row, col) {
 let nextIdCounter = 1;
 function makeId() { return Date.now().toString(36) + "-" + (nextIdCounter++); }
 
-function placeMachine(state, type, room, row, col) {
+// What it costs to put a machine on the floor (after it's unlocked).
+function placeCost(type) {
+  const d = byId(CONFIG.machines, type);
+  return niceNumber(d.unlock * CONFIG.placeShare);
+}
+
+function placeMachine(state, type, room, row, col, free) {
   if (state.unlocked <= CONFIG.machines.findIndex(d => d.id === type)) return null;
   if (cantPlace(state, type, room, row, col)) return null;
   const d = byId(CONFIG.machines, type);
+  if (!free) {
+    if (state.money < placeCost(type)) return null;
+    state.money -= placeCost(type);
+  }
   const m = {
     id: makeId(), type: type, name: randomGameName(), room: room, row: row, col: col,
     status: "building", buildLeft: d.build, up: { speed: 0, bugs: 0, price: 0, line: 0 },
@@ -265,6 +275,14 @@ function removeMachine(state, m) {
   state.machines = state.machines.filter(x => x !== m);
   for (const c of state.customers) if (c.machine === m.id) { c.machine = null; chooseMachine(state, c); }
   buildMap(state);
+}
+
+// Swap a machine for a different one in the same spot.
+function swapMachine(state, m, type) {
+  if (cantPlace(state, type, m.room, m.row, m.col, m)) return null;
+  if (state.money < placeCost(type)) return null;
+  removeMachine(state, m);
+  return placeMachine(state, type, m.room, m.row, m.col);
 }
 
 function renameMachine(m, name) {
@@ -373,14 +391,21 @@ function say(c, bubble, seconds) { c.bubble = bubble; c.bubbleT = seconds; }
 function chooseMachine(state, c) {
   c.machine = null;
   const open = state.machines.filter(m => machineOpen(state, m) && m.queue.length < lineSlots(m));
+  // How busy a machine is: people waiting or playing, per player seat.
+  const busy = m => (m.queue.length + m.playing.length) / machineDef(m).players + Math.random() * 0.01;
+  const leastBusy = list => list.reduce((a, b) => (busy(b) < busy(a) ? b : a));
   let pick = null;
   if (!c.gotWish) {
+    // Always go for the machine they want first, the least busy one.
     const wished = open.filter(m => m.type === c.wish);
-    if (wished.length) pick = pickRandom(wished);
+    if (wished.length) pick = leastBusy(wished);
   }
   if (!pick && open.length) {
     const others = open.filter(m => m.id !== c.last);
-    pick = pickRandom(others.length ? others : open);
+    const list = others.length ? others : open;
+    // A random machine, but they like ones with a free seat.
+    const free = list.filter(m => busy(m) < 1);
+    pick = pickRandom(free.length ? free : list);
   }
   if (!pick) {
     // Every line is full: just walk around a bit and try again.
@@ -569,9 +594,9 @@ function tick(state, dt) {
 
   // Money per second lately (a slow average, used while you're away)
   state.rateTimer += dt;
-  if (state.rateTimer >= 10) {
+  if (state.rateTimer >= 5) {
     const now = state.rateBucket / state.rateTimer;
-    state.rate = state.rate ? state.rate * 0.9 + now * 0.1 : now;
+    state.rate = state.rate ? state.rate * 0.8 + now * 0.2 : now;
     state.rateBucket = 0; state.rateTimer = 0;
   }
 }
@@ -625,7 +650,7 @@ const SAVE_KEY = "pixelEmpireArcade.slot.";
 
 function saveData(state) {
   const keep = {};
-  for (const k of ["v", "name", "look", "money", "rooms", "unlocked", "day", "rep", "rate", "outage", "outageIn", "totalEarned", "playSeconds"]) keep[k] = state[k];
+  for (const k of ["v", "name", "look", "money", "rooms", "unlocked", "day", "rep", "rate", "outage", "outageIn", "totalEarned", "playSeconds", "hints"]) keep[k] = state[k];
   keep.savedAt = Date.now();
   keep.machines = state.machines.map(m => ({
     id: m.id, type: m.type, name: m.name, room: m.room, row: m.row, col: m.col,
@@ -650,6 +675,6 @@ function loadGame(slot) {
 function deleteSave(slot) { try { localStorage.removeItem(SAVE_KEY + slot); } catch (e) { /* ignore */ } }
 
 if (typeof module !== "undefined") module.exports = {
-  newArcadeState, tick, catchUp, placeMachine, unlockNext, buyUpgrade, buyRoom, nextRoomCost, cantPlace,
+  newArcadeState, tick, catchUp, placeMachine, placeCost, swapMachine, unlockNext, buyUpgrade, buyRoom, nextRoomCost, cantPlace,
   machineDef, upgradeCost, fixBug, fixOutage, speedUpBuild, capacity, SLOTS_PER_ROW,
 };

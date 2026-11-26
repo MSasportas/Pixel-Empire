@@ -10,13 +10,15 @@
   <!-- Free pixel fonts from Google Fonts (Open Font License) -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=VT323&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@600;800;900&family=Press+Start+2P&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="css/style.css">
   <link rel="stylesheet" href="css/arcade.css">
 </head>
 <body>
   <!-- The arcade, drawn with pixel art -->
   <canvas id="arcade"></canvas>
+  <!-- Clear text and icons, drawn sharp on top of the pixel art -->
+  <canvas id="labels"></canvas>
 
   <!-- Title screen -->
   <div id="title" class="screen">
@@ -40,11 +42,11 @@
   <!-- The boxes in the corners -->
   <div id="hud" class="hidden">
     <div class="hud-box tl">
-      <div class="hud-line"><span class="hud-label">Money</span> <b id="hud-money" class="pink">$0</b></div>
-      <div class="hud-line"><span class="hud-label">Customers</span> <b id="hud-customers" class="cyan">0</b></div>
+      <div class="hud-line"><span class="hud-label">Money</span> <b id="hud-money" class="pink">$0</b> <span id="hud-rate" class="hud-rate"></span></div>
+      <div class="hud-line"><span class="hud-label">Customers</span> <b id="hud-customers" class="cyan">0</b> <span id="hud-full" class="full-tag hidden" data-act="shop">FULL · buy a room</span></div>
       <div class="hud-line"><span class="hud-label">Date</span> <span id="hud-time" class="hud-date"></span></div>
     </div>
-    <div class="hud-box tr"><button class="btn ghost" data-act="menu">Menu</button></div>
+    <div class="hud-box tr"><button id="btn-shop" class="btn" data-act="shop">Shop</button> <button class="btn ghost" data-act="menu">Menu</button></div>
     <button id="prompt" class="hidden"></button>
     <div id="topcenter"><div id="toast" class="toast hidden"></div></div>
   </div>
