@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Pixel Empire Arcade (test)</title>
+  <link rel="icon" href="../favicon.ico?v=2" sizes="16x16 32x32 48x48">
+  <link rel="apple-touch-icon" href="../icons/apple-touch-icon.png?v=2">
+  <meta name="theme-color" content="#0b0618">
+  <!-- Free pixel fonts from Google Fonts (Open Font License) -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=VT323&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/style.css">
+  <link rel="stylesheet" href="css/arcade.css">
+</head>
+<body>
+  <!-- The arcade, drawn with pixel art -->
+  <canvas id="arcade"></canvas>
+
+  <!-- Title screen -->
+  <div id="title" class="screen">
+    <div class="title-box">
+      <h1 class="logo">PIXEL<br>EMPIRE</h1>
+      <p class="arcade-logo">ARCADE</p>
+      <p class="tagline">Run your own neon arcade</p>
+      <p class="test-tag">TEST VERSION · its own saves, your studio game is safe</p>
+      <div id="slots" class="slots"></div>
+    </div>
+  </div>
+
+  <!-- Making a new arcade -->
+  <div id="create" class="screen hidden">
+    <div class="panel create-box">
+      <div class="panel-head"><h2>Your new arcade</h2></div>
+      <div id="create-body"></div>
+    </div>
+  </div>
+
+  <!-- The boxes in the corners -->
+  <div id="hud" class="hidden">
+    <div class="hud-box tl">
+      <div class="hud-line"><span class="hud-label">Money</span> <b id="hud-money" class="pink">$0</b></div>
+      <div class="hud-line"><span class="hud-label">Customers</span> <b id="hud-customers" class="cyan">0</b></div>
+      <div class="hud-line"><span class="hud-label">Date</span> <span id="hud-time" class="hud-date"></span></div>
+    </div>
+    <div class="hud-box tr"><button class="btn ghost" data-act="menu">Menu</button></div>
+    <button id="prompt" class="hidden"></button>
+    <div id="topcenter"><div id="toast" class="toast hidden"></div></div>
+  </div>
+
+  <!-- Pop-ups -->
+  <div id="panel" class="overlay hidden"></div>
+  <div id="card" class="overlay hidden"></div>
+  <div id="minigame" class="overlay hidden"></div>
+  <div id="banner" class="banner hidden"></div>
+  <!-- The controller's pointer in menus -->
+  <div id="pad-cursor" class="hidden"></div>
+
+  <!-- The game's code. Each file has its own job. -->
+  <script src="js/config.js"></script>     <!-- all the numbers -->
+  <script src="js/game.js"></script>       <!-- the rules -->
+  <script src="js/art.js"></script>        <!-- pixel art -->
+  <script src="js/music.js"></script>      <!-- music and sounds -->
+  <script src="js/minigames.js"></script>  <!-- mini-games -->
+  <script src="js/input.js"></script>      <!-- keyboard, controller, touch -->
+  <script src="js/ui.js"></script>         <!-- screens and buttons -->
+  <script src="js/main.js"></script>       <!-- starts everything -->
+</body>
+</html>
