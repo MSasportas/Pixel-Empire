@@ -1,0 +1,186 @@
+/* =====================================================================
+   PIXEL EMPIRE ARCADE - PHONE AND TOUCH LOOKS
+   ---------------------------------------------------------------------
+   Ideas borrowed from big phone games (only how they feel, not how they
+   look): big chunky buttons you press with a thumb, the important
+   buttons at the bottom of the screen, menus that slide up from the
+   bottom, and a bouncy "pop" whenever you touch something.
+   "body.phone" is switched on by ui.js when the screen is phone-sized.
+   ===================================================================== */
+
+/* ----- The page never scrolls, bounces or zooms by itself ----- */
+html, body {
+  overscroll-behavior: none;
+  touch-action: manipulation;          /* no double-tap zoom */
+  -webkit-tap-highlight-color: transparent;
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+body { position: fixed; inset: 0; overflow: hidden; }
+body.phone, body.phone * {
+  -webkit-user-select: none; user-select: none;   /* no accidental text selecting */
+  -webkit-touch-callout: none;                    /* no "save image" pop-up on long press */
+}
+body.phone input, body.phone textarea { -webkit-user-select: text; user-select: text; }
+
+/* ----- Chunky buttons that squash when pressed ----- */
+.btn {
+  transition: transform 0.08s ease-out, filter 0.08s;
+  box-shadow: 0 0 0 2px var(--pink), 0 4px 0 2px #8a1758, 0 0 12px rgba(255, 62, 165, 0.5);
+  touch-action: manipulation;
+}
+.btn.ghost { box-shadow: 0 0 0 2px var(--cyan), 0 4px 0 2px #0f5d70; }
+.btn:active:not(:disabled):not(.cant) {
+  transform: translateY(3px) scale(0.96);
+  box-shadow: 0 0 0 2px var(--pink), 0 1px 0 2px #8a1758;
+}
+.btn.ghost:active:not(:disabled):not(.cant) { box-shadow: 0 0 0 2px var(--cyan), 0 1px 0 2px #0f5d70; }
+@media (hover: none) { .btn:hover { filter: none; } }
+@media (pointer: coarse) {
+  .btn { min-height: 44px; min-width: 44px; }
+  .btn.small { min-height: 40px; }
+}
+
+/* Desktop: the little icons stay hidden, the words do the talking */
+.hud-icon { display: none; }
+.btn-icon { margin-right: 4px; }
+
+/* ----- Little celebrations ----- */
+#hud-money { display: inline-block; }
+#hud-money.bump { animation: money-bump 0.35s cubic-bezier(.3, 1.8, .5, 1); }
+@keyframes money-bump { 0% { transform: scale(1); } 40% { transform: scale(1.25); color: #fff; } 100% { transform: scale(1); } }
+.item.flash { animation: row-flash 0.7s ease-out; }
+@keyframes row-flash {
+  0% { background: rgba(124, 255, 107, 0.45); box-shadow: 0 0 18px #7cff6b; }
+  100% { background: transparent; box-shadow: none; }
+}
+#card > .panel { animation: card-pop 0.3s cubic-bezier(.2, 1.5, .4, 1); }
+@keyframes card-pop { 0% { transform: scale(0.6); opacity: 0; } 100% { transform: scale(1); opacity: 1; } }
+#prompt:not(.hidden) { animation: prompt-in 0.25s cubic-bezier(.2, 1.6, .4, 1); }
+@keyframes prompt-in { 0% { transform: translateX(-50%) scale(0.7); opacity: 0; } 100% { transform: translateX(-50%) scale(1); opacity: 1; } }
+#prompt:active { transform: translateX(-50%) translateY(3px) scale(0.96); }
+
+/* ----- Title screen: can scroll if the screen is short ----- */
+.screen { overflow-y: auto; -webkit-overflow-scrolling: touch; align-items: flex-start; }
+.screen > .title-box, .screen > .create-box { margin: auto; }
+.title-box { padding-top: calc(16px + env(safe-area-inset-top)); padding-bottom: calc(16px + env(safe-area-inset-bottom)); }
+
+/* =====================================================================
+   PHONES
+   ===================================================================== */
+
+/* ----- Top: money, customers and date as slim pills ----- */
+body.phone .hud-box.tl {
+  top: calc(6px + env(safe-area-inset-top));
+  left: calc(6px + env(safe-area-inset-left));
+  right: calc(6px + env(safe-area-inset-right));
+  display: flex; flex-wrap: wrap; gap: 6px; align-items: center;
+  background: none; border: none; padding: 0;
+  pointer-events: none;
+}
+body.phone .hud-line {
+  display: flex; align-items: center; gap: 4px;
+  background: rgba(15, 8, 32, 0.88);
+  border: 2px solid rgba(46, 230, 255, 0.55);
+  border-radius: 999px; padding: 3px 10px 3px 6px;
+  font-size: 14px; white-space: nowrap;
+}
+body.phone .h-money { border-color: var(--pink); }
+body.phone .hud-icon { display: inline; font-size: 16px; }
+body.phone .hud-label { display: none; }
+body.phone .hud-line b { font-size: 17px; }
+body.phone .hud-rate { font-size: 13px; }
+
+/* ----- Bottom: big round Shop and Menu buttons, in thumb reach ----- */
+body.phone .hud-box.tr {
+  top: auto; min-width: 0;
+  bottom: calc(10px + env(safe-area-inset-bottom));
+  left: calc(10px + env(safe-area-inset-left));
+  right: calc(10px + env(safe-area-inset-right));
+  display: flex; justify-content: space-between; align-items: flex-end;
+  background: none; border: none; padding: 0;
+  pointer-events: none;
+}
+body.phone .hud-box.tr .btn {
+  pointer-events: auto;
+  width: 66px; height: 66px; margin: 0; padding: 0;
+  border-radius: 18px;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px;
+}
+body.phone .hud-box.tr .btn-icon { margin: 0; font-size: 28px; line-height: 1; }
+body.phone .hud-box.tr .btn-text { font-size: 12px; line-height: 1; }
+body.phone #btn-menu { background: rgba(15, 8, 32, 0.92); }
+
+/* The "use this" button sits between them */
+body.phone #prompt {
+  bottom: calc(14px + env(safe-area-inset-bottom));
+  max-width: calc(100vw - 180px - env(safe-area-inset-left) - env(safe-area-inset-right));
+  min-height: 56px; padding: 10px 16px; font-size: 16px;
+  border-radius: 16px; border-width: 3px;
+  box-shadow: 0 4px 0 1px #0f5d70, 0 0 14px rgba(46, 230, 255, 0.6);
+}
+/* Zoom buttons stack above Menu */
+body.phone #zoom-box {
+  right: calc(10px + env(safe-area-inset-right));
+  bottom: calc(88px + env(safe-area-inset-bottom));
+}
+body.phone #zoom-box .zoom-btn { width: 48px; height: 48px; border-radius: 14px; margin: 0; }
+/* Messages appear under the pills */
+body.phone #topcenter { top: calc(62px + env(safe-area-inset-top)); width: min(560px, 92vw); }
+body.phone .toast { border-radius: 12px; font-size: 15px; }
+
+/* ----- Menus slide up from the bottom, like a drawer ----- */
+body.phone #panel { align-items: flex-end; }
+body.phone #panel .panel-main {
+  width: min(680px, 100vw); max-height: 82vh; max-height: 82dvh;
+  border-radius: 20px 20px 0 0; border-bottom: none;
+  padding: 6px 14px calc(14px + env(safe-area-inset-bottom));
+  animation: sheet-up 0.32s cubic-bezier(.2, 1.25, .4, 1);
+}
+body.phone #panel .panel-main::before {          /* the little grab handle */
+  content: ""; display: block; width: 44px; height: 5px; margin: 2px auto 4px;
+  border-radius: 3px; background: rgba(255, 255, 255, 0.3);
+}
+@keyframes sheet-up { 0% { transform: translateY(100%); } 100% { transform: translateY(0); } }
+body.phone .panel-head { position: sticky; top: 0; background: var(--panel); z-index: 1; }
+body.phone .panel-head h2 { font-size: 18px; margin: 4px 0 8px; }
+body.phone .panel-head .btn[data-act="close"] { width: 44px; height: 44px; font-size: 18px; border-radius: 12px; }
+body.phone .panel-body { -webkit-overflow-scrolling: touch; overscroll-behavior: contain; padding-right: 0; }
+body.phone .panel-body .btn { border-radius: 10px; }
+body.phone .item { min-height: 52px; }
+
+/* Pop-up cards */
+body.phone #card > .panel { border-radius: 18px; max-width: 94vw; max-height: 86dvh; overflow-y: auto; }
+body.phone #card .btn.big { min-height: 54px; min-width: 60%; border-radius: 14px; }
+
+/* ----- Mini-games sit at the top, so the keyboard doesn't cover them ----- */
+body.phone #minigame { align-items: flex-start; padding-top: calc(8px + env(safe-area-inset-top)); }
+body.phone .mg-box { border-radius: 16px; max-height: calc(100dvh - 16px); overflow-y: auto; }
+body.phone .mg-arena { height: 230px; border-radius: 10px; }
+body.phone .mg-word { margin: 30px 0 16px; }
+body.phone .mg-input { min-height: 48px; border-radius: 10px; }
+
+/* ----- Title screen on phones ----- */
+body.phone .slot { border-radius: 14px; width: min(260px, 86vw); }
+body.phone .slot .btn { min-height: 48px; border-radius: 12px; }
+body.phone .tagline { font-size: 18px; margin: 6px 0; }
+body.phone .test-tag { font-size: 13px; }
+body.phone .create-box { border-radius: 16px; }
+
+/* ----- Phone turned sideways: everything gets flatter ----- */
+@media (orientation: landscape) and (max-height: 500px) {
+  .logo { font-size: 26px; }
+  .arcade-logo { font-size: 16px; margin-top: 4px; }
+  .tagline { font-size: 15px; margin: 4px 0; }
+  .slots { flex-wrap: nowrap; gap: 8px; margin-top: 8px; }
+  .slot { width: 200px; padding: 8px; }
+  body.phone .slot { width: 200px; }
+  body.phone .hud-box.tl { right: auto; max-width: 60vw; }
+  body.phone #topcenter { top: calc(8px + env(safe-area-inset-top)); left: auto; right: calc(10px + env(safe-area-inset-right)); transform: none; width: min(320px, 36vw); }
+  body.phone #panel .panel-main { max-height: 92dvh; }
+  body.phone #zoom-box { flex-direction: row; bottom: calc(86px + env(safe-area-inset-bottom)); }
+  body.phone .mg-how { display: none; }
+  body.phone .mg-arena { height: 150px; }
+  body.phone .mg-word { margin: 10px 0 8px; }
+  body.phone .mg-box { width: min(640px, 92vw); }
+}
