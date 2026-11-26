@@ -219,8 +219,10 @@ Object.assign(UI, {
   // Draws a pop-up, but if only the timers changed it just updates them
   // (so buttons don't jump while you're pressing them).
   systemPanel(kind, title, html, color) {
-    const sig = html.replace(/(data-job="[^"]*">)[^<]*/g, "$1").replace(/width:[\d.]+%/g, "");
+    // Leave out the bits that change all the time (timers, bars, money needed).
+    const sig = html.replace(/(data-job="[^"]*">)[^<]*/g, "$1").replace(/(data-need="[^"]*">)[^<]*/g, "$1").replace(/width:[\d.]+%/g, "");
     if (this.panelKind === kind && this.panelSig === sig && !$("panel").classList.contains("hidden")) {
+      document.querySelectorAll("#panel [data-need]").forEach(el => { el.textContent = money(Math.max(0, +el.dataset.need - state.money)); });
       document.querySelectorAll("#panel [data-jobbar]").forEach(el => {
         const j = state.jobs.find(x => x.id === el.dataset.jobbar);
         if (j) el.style.width = (Math.max(0, Math.min(1, 1 - j.left / j.total)) * 100).toFixed(1) + "%";
@@ -273,7 +275,7 @@ Object.assign(UI, {
         const block = counterBlock(state), cant = !!block || state.money < next.cost;
         html += '<div class="row">' + (block ? '<span class="pink">' + block + ". " + '<button class="btn small ghost" data-act="mechanics">See Mechanics</button></span>' :
           '<button class="btn big' + (cant ? " cant" : " glow") + '" data-act="counter-up"' + (cant ? " disabled" : "") + ">Upgrade · " + money(next.cost) + ' <span class="job-time">· ' + fmtDuration(next.seconds) + "</span></button>") + "</div>";
-        if (!block && state.money < next.cost) html += '<p class="muted">You need ' + money(next.cost - state.money) + " more.</p>";
+        if (!block && state.money < next.cost) html += '<p class="muted">You need <span data-need="' + next.cost + '">' + money(next.cost - state.money) + "</span> more.</p>";
       }
     }
     this.systemPanel("counter", "Front Counter", html, "#ffd23f");

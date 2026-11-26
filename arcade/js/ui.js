@@ -395,12 +395,14 @@ const UI = {
   openPanel(title, body, color) {
     // Re-drawing the same pop-up (after buying something) keeps your place in it.
     const oldBody = $("panel").querySelector(".panel-body"), oldTitle = $("panel").querySelector(".panel-head h2");
-    const keep = oldBody && oldTitle && oldTitle.innerHTML === title && !$("panel").classList.contains("hidden") ? oldBody.scrollTop : 0;
+    const same = !!(oldBody && oldTitle && oldTitle.innerHTML === title && !$("panel").classList.contains("hidden"));
+    const keep = same ? oldBody.scrollTop : 0;
     $("panel").innerHTML = '<div class="panel panel-main"' + (color ? ' style="border-color:' + color + '"' : "") + '>' +
       '<div class="panel-head"><h2>' + title + '</h2><span class="panel-money" id="panel-money">' + money(state ? state.money : 0) + '</span><button class="btn ghost small" data-act="close">✕</button></div>' +
       '<div class="panel-body">' + body + "</div></div>";
     $("panel").classList.remove("hidden");
-    if (keep) { $("panel").querySelector(".panel-body").scrollTop = keep; $("panel").querySelector(".panel-main").style.animation = "none"; }
+    // The same pop-up drawn again: no slide-up, and stay where you were.
+    if (same) { $("panel").querySelector(".panel-body").scrollTop = keep; $("panel").querySelector(".panel-main").style.animation = "none"; }
     Input.cursor = { x: innerWidth / 2, y: innerHeight / 2 };
   },
   closePanel() {
