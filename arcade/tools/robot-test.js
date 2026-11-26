@@ -43,12 +43,13 @@ for (time = 0; time < HOURS * 3600; time += dt) {
   }
   // Upgrades: cheapest first, only if it costs less than 1/4 of our money
   let cheapest = null;
-  for (const m of s.machines) for (const u of CONFIG.upgrades) { const c = upgradeCost(m, u.id); if (c !== null && (!cheapest || c < cheapest.c)) cheapest = { m, u: u.id, c }; }
-  if (cheapest && cheapest.c < s.money / 10) buyUpgrade(s, cheapest.m, cheapest.u);
+  for (const type of new Set(s.machines.map(m => m.type))) for (const u of CONFIG.upgrades) { const m = typeStub(s, type); const c = upgradeCost(m, u.id); if (c !== null && (!cheapest || c < cheapest.c)) cheapest = { m, u: u.id, c }; }
+  if (cheapest && cheapest.c < s.money / 4) buyUpgrade(s, cheapest.m, cheapest.u);
+  if (signCost(s) !== null && signCost(s) < s.money / 4) { buySign(s); log.push(stamp() + "  bright sign level " + s.sign); }
   // Fix bugs and outages after about a minute
   for (const m of s.machines) if (m.status === "bug") { fixWait[m.id] = (fixWait[m.id] || 0) + 5; if (fixWait[m.id] > 60) { fixBug(s, m); fixWait[m.id] = 0; } }
   if (s.outage) { fixWait.o = (fixWait.o || 0) + 5; if (fixWait.o > 60) { fixOutage(s); fixWait.o = 0; log.push(stamp() + "  fixed a power outage"); } }
-  if (Math.floor(time) % 1800 === 0 && time % 1 === 0) log.push(stamp() + "  money $" + Math.floor(s.money).toLocaleString() + ", rate $" + Math.round(s.rate * 60).toLocaleString() + "/min, " + s.machines.length + " machines, " + s.customers.length + " customers");
+  if (Math.floor(time) % 1800 === 0 && time % 1 === 0) log.push(stamp() + "  money $" + Math.floor(s.money).toLocaleString() + ", rate $" + Math.round(s.rate * 60).toLocaleString() + "/min, " + s.machines.length + " machines, " + s.customers.length + " / " + capacity(s) + " customers");
 }
 console.log(log.join("\n"));
 // A week away

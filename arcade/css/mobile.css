@@ -184,3 +184,14 @@ body.phone .create-box { border-radius: 16px; }
   body.phone .mg-word { margin: 10px 0 8px; }
   body.phone .mg-box { width: min(640px, 92vw); }
 }
+
+/* ----- Review fixes ----- */
+/* Phones: the date lives in the Menu, so the top bar is one row */
+body.phone .h-date { display: none; }
+/* Arcade full: the customers box turns pink */
+.h-cust.full #hud-customers { color: var(--pink); }
+body.phone .h-cust.full { border-color: var(--pink); }
+/* Upgrades grouped by machine type in the Shop */
+.up-group { border-left: 3px solid rgba(46, 230, 255, 0.35); padding-left: 8px; margin: 10px 0; }
+.up-head { display: flex; align-items: center; gap: 8px; margin-bottom: 2px; }
+.up-row { padding-left: 4px; }

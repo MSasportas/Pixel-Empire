@@ -17,11 +17,12 @@ const CONFIG = {
 
   // ----- Away from the arcade ---------------------------------------
   maxAwaySeconds: 7 * 24 * 3600,   // earnings count for up to 7 days
-  awayShare: 0.03,                 // while away, customers come much less often
+  awayShare: 0.012,                // while away you earn this share of your usual money per minute
   welcomeBackAfterSeconds: 60,
 
   // ----- Customers ----------------------------------------------------
-  customersPerRoom: 20,        // how many people fit in the arcade per room
+  baseCustomers: 10,           // people who fit in the arcade with no machines...
+  customersPerSeat: 1,         // ...plus this many for every seat on a working machine
   arriveEverySeconds: 9,       // with no machines, a new customer this often...
   arrivePerMachine: 0.3,       // ...and each machine makes them come more often
   fastestArrive: 0.4,
@@ -29,11 +30,11 @@ const CONFIG = {
   energyPerPlay: [10, 18],     // energy (out of 100) each play uses
   walkSpeed: 30,               // pixels per second
   wishChance: 0.75,            // how often a wish is a machine you already have
-  lineSlots: 3,                // people who can wait in each line at the start
+  lineSlots: 3,                // people who can wait in each line
 
   // ----- Bugs and power outages (real minutes of play) ---------------
-  bugMinutes: [30, 45],        // each machine catches a bug about this often
-  bugUpgrade: [1, 2, 4],       // "Fewer bugs" upgrade: bugs come 2x, then 4x less often
+  bugMinutes: [5, 10],         // one machine in the arcade catches a bug about this often
+                               // (only one bug at a time, and only one waits for you after time away)
   bugFixScore: 0.5,            // squash game score needed to fix it (0.5 = half)
   outageMinutes: [120, 180],   // power outages are rare
   mazeSeconds: 45,
@@ -61,14 +62,16 @@ const CONFIG = {
     { id: "vr",       name: "VR pods",            players: 4, w: 2, h: 2, unlock: 25000000, price: 3400, play: 18, build: 300, color: "#b18cff" },
   ],
 
-  // ----- Machine upgrades (each has 2 levels) -------------------------
-  // cost: times the machine's unlock price.
+  // ----- Upgrades, bought in the Shop for a whole machine type -------
+  // ("All claw machines: Higher price"). New machines of that type get them too.
+  // cost: times that machine's unlock price, one number per level.
   upgrades: [
-    { id: "speed", name: "Faster play",      about: "Each play is shorter, so more people get a turn.", cost: [0.5, 1.5], values: [1, 0.75, 0.55] },
-    { id: "bugs",  name: "Fewer bugs",       about: "Bugs come less often.",                            cost: [0.4, 1.2], values: [1, 2, 4] },
-    { id: "price", name: "Higher price",     about: "Each play costs more.",                            cost: [0.6, 1.8], values: [1, 1.5, 2.25] },
-    { id: "line",  name: "More line slots",  about: "More people can wait in line.",                    cost: [0.3, 0.9], values: [3, 4, 5] },
+    { id: "price", name: "Higher price", about: "Each play costs more.",                            cost: [1.5, 4, 9, 22], values: [1, 1.25, 1.55, 1.9, 2.3] },
+    { id: "speed", name: "Faster play",  about: "Each play is shorter, so more people get a turn.", cost: [1.2, 3, 7, 18], values: [1, 0.85, 0.72, 0.62, 0.55] },
   ],
+  // An upgrade for the whole arcade: more people come in at once.
+  sign: { name: "Bright sign", about: "A bigger, brighter sign out front. More customers come in at once.",
+    cost: [3000, 40000, 500000, 6000000], extra: [0, 6, 14, 24, 36] },
 
   // Random customer looks and the made-up names (same lists as the studio game).
   look: {
