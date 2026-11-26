@@ -107,7 +107,7 @@ const UI = {
     });
     $("zoom-in").addEventListener("click", () => this.zoomBy(1));
     $("zoom-out").addEventListener("click", () => this.zoomBy(-1));
-    $("zoom-me").addEventListener("click", () => { this.pan = { x: 0, y: 0 }; });
+    $("zoom-me").addEventListener("click", () => { this.free = null; this.fling = null; });
     // All buttons in pop-ups use data-act="..." (one listener for all).
     document.addEventListener("click", e => {
       const b = e.target.closest ? e.target.closest("[data-act]") : null;
@@ -131,7 +131,7 @@ const UI = {
 
   // Makes the picture fill the window, with big crisp pixels.
   zoom: 0,               // how far you zoomed in (+) or out (-)
-  pan: { x: 0, y: 0 },   // how far you dragged the camera away from you
+  free: null,            // where the camera stays after you drag it (null = it follows you)
 
   fit() {
     // Phones get bigger pixels: the camera follows you, so it's fine
@@ -178,9 +178,11 @@ const UI = {
   // Look around without walking (drag on a phone, right stick on a controller).
   panBy(dx, dy) {
     if (!state || this.overlayOpen()) return;
-    this.pan.x -= dx / this.scale;
-    this.pan.y -= dy / this.scale;
-    this.walkGoal = null;
+    // Dragging lets go of you: the camera stays where you leave it,
+    // even while you walk somewhere by tapping. The ◎ button brings it back.
+    if (!this.free) this.free = { x: this.view.x + this.view.w / 2, y: this.view.y + this.view.h / 2 };
+    this.free.x -= dx / this.scale;
+    this.free.y -= dy / this.scale;
     this.panned = true;
   },
 
@@ -239,7 +241,7 @@ const UI = {
     $("create").classList.add("hidden");
     $("hud").classList.remove("hidden");
     this.closePanel();
-    this.walkGoal = null;
+    this.walkGoal = null; this.free = null;
     this.snapCamera = true;
     const away = catchUp(state);
     if (away && away.seconds >= CONFIG.welcomeBackAfterSeconds) this.showAway(away);
@@ -557,7 +559,7 @@ const UI = {
     if (goal && goal.kind !== "spot" && !goal.point) points.push({ x: Math.max(goal.rect.x + 4, Math.min(goal.rect.x + goal.rect.w - 4, wx)), y: (goal.stand.y + 0.5) * T + 3 });
     else if (!goal && walkable(state, Math.floor(wx / T), Math.floor(wy / T))) points.push({ x: wx, y: wy });
     this.walkGoal = { points: points, target: goal };
-    this.pan = { x: 0, y: 0 }; this.fling = null;
+    this.fling = null;
     this.tapMark = { x: wx, y: wy, age: 0 };
   },
 
@@ -585,7 +587,7 @@ const UI = {
     let moved = false;
     if (v.x || v.y) {
       this.walkGoal = null;
-      this.pan = { x: 0, y: 0 }; this.fling = null;
+      this.free = null; this.fling = null;
       const nx = p.x + v.x * speed * dt, ny = p.y + v.y * speed * dt;
       if (this.canStand(nx, p.y)) { p.x = nx; moved = true; }
       if (this.canStand(p.x, ny)) { p.y = ny; moved = true; }
@@ -645,14 +647,14 @@ const UI = {
     const box = state ? document.querySelector(".hud-box.tl").getBoundingClientRect() : null;
     const padTop = box ? (box.bottom + 6) / this.scale : 0, padBottom = state ? (this.phone ? 96 : 60) / this.scale : 0;
     const minY = -padTop, maxY = worldH + padBottom - this.view.h;
-    const pan = state ? this.pan : { x: 0, y: 0 };
-    const bx = p.x - this.view.w / 2, by = p.y - 10 - this.view.h / 2;
-    let tx = bx + pan.x, ty = by + pan.y;
+    const free = state ? this.free : null;
+    let tx = p.x - this.view.w / 2, ty = p.y - 10 - this.view.h / 2;
+    if (free) { tx = free.x - this.view.w / 2; ty = free.y - this.view.h / 2; }
     tx = this.view.w >= worldW ? (worldW - this.view.w) / 2 : Math.max(0, Math.min(worldW - this.view.w, tx));
     ty = maxY <= minY ? (minY + maxY) / 2 : Math.max(minY, Math.min(maxY, ty));
     // Don't let the drag go further than the edge of the arcade
-    if (state) { pan.x = tx - bx; pan.y = ty - by; if (Math.abs(pan.x) < 0.5 && Math.abs(pan.y) < 0.5) { pan.x = 0; pan.y = 0; } }
-    const lookingAway = state && (pan.x || pan.y);
+    if (free) { free.x = tx + this.view.w / 2; free.y = ty + this.view.h / 2; }
+    const lookingAway = !!free;
     $("zoom-me").classList.toggle("hidden", !lookingAway);
     if (this.panned) { this.view.x = tx; this.view.y = ty; this.panned = false; }
     else if (this.snapCamera || !state) { this.view.x = tx; this.view.y = ty; this.snapCamera = false; }
