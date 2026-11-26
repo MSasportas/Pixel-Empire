@@ -68,6 +68,7 @@ const DOOR_X = [5, 6];             // the front door (in room 1's bottom wall)
 const FUSE = { x: 9, y: 18 };      // the fuse box, on the wall by the door
 const SLOT_ROWS = [0, 4];          // rows where machines go
 const SLOTS_PER_ROW = 8;           // columns 1 to 8
+const COUNTER = { x: 2, y: 17, w: 2 };  // the Front Counter, in room 1 by the front door
 
 function roomPos(i) { return i < 3 ? { c: i, r: 1 } : { c: i - 3, r: 0 }; }
 function roomOrigin(i) { const p = roomPos(i); return { x: 1 + p.c * 11, y: 1 + p.r * 9 }; }
@@ -111,6 +112,7 @@ function buildMap(state) {
   }
   DOOR_X.forEach(x => { tiles[SIDEWALK_Y - 1][x] = 1; });
   for (let y = SIDEWALK_Y; y < MAP_H; y++) for (let x = 0; x < MAP_W; x++) tiles[y][x] = 2;
+  for (let i = 0; i < COUNTER.w; i++) blocked[COUNTER.y][COUNTER.x + i] = true;
   // Big machines (VR pods) also cover the square below their spot.
   for (const m of state.machines) for (const c of machineCells(m)) blocked[c.y][c.x] = true;
   state.map = { tiles: tiles, blocked: blocked, version: (state.map ? state.map.version : 0) + 1 };
@@ -250,11 +252,13 @@ function placeMachine(state, type, room, row, col, free) {
     if (state.money < placeCost(type)) return null;
     state.money -= placeCost(type);
   }
+  if (!free && state.typesPlaced && !state.typesPlaced.includes(type)) { state.typesPlaced.push(type); addStars(state, CONFIG.stars.newType); }
   const m = {
     id: makeId(), type: type, name: randomGameName(), room: room, row: row, col: col,
     status: "building", buildLeft: d.build, up: typeUpgrades(state, type),
     plays: 0, earned: 0, queue: [], playing: [],
   };
+  if (!free && state.instantBuilds > 0) { state.instantBuilds--; m.buildLeft = 0.01; }
   state.machines.push(m);
   buildMap(state);
   return m;
@@ -268,22 +272,145 @@ function unlockNext(state) {
   return true;
 }
 
+// Why an upgrade can't start right now ("" = it can).
+function upgradeBlock(state, type, id) {
+  const lvl = typeUpgrades(state, type)[id];
+  if (jobFor(state, "type", type, id)) return "Being upgraded";
+  if (lvl >= counterInfo(state).maxUpgrade) return "Needs Counter level " + counterLevelFor(state, c => c.maxUpgrade > lvl);
+  if (freeMechanics(state) <= 0) return mechanicsBusyText(state);
+  return "";
+}
+// Buying an upgrade gives a Mechanic a job. The upgrade works when the job is done.
 function buyUpgrade(state, m, id) {
   const cost = upgradeCost(m, id);
-  if (cost === null || state.money < cost) return false;
+  if (cost === null || state.money < cost || upgradeBlock(state, m.type, id)) return null;
   state.money -= cost;
-  m.up[id]++;
-  return true;
+  const lvl = m.up[id];
+  return startJob(state, { kind: "type", type: m.type, up: id, seconds: CONFIG.typeJobSeconds[lvl] });
 }
 
 // The Bright sign (an upgrade for the whole arcade)
 function signCost(state) { const c = CONFIG.sign.cost[state.sign || 0]; return c === undefined ? null : c; }
+function signBlock(state) {
+  if (jobFor(state, "sign")) return "Being upgraded";
+  if ((state.sign || 0) >= counterInfo(state).maxSign) return "Needs Counter level " + counterLevelFor(state, c => c.maxSign > (state.sign || 0));
+  if (freeMechanics(state) <= 0) return mechanicsBusyText(state);
+  return "";
+}
 function buySign(state) {
   const cost = signCost(state);
-  if (cost === null || state.money < cost) return false;
+  if (cost === null || state.money < cost || signBlock(state)) return null;
   state.money -= cost;
-  state.sign = (state.sign || 0) + 1;
+  return startJob(state, { kind: "sign", seconds: CONFIG.signJobSeconds[state.sign || 0] });
+}
+
+// =====================================================================
+//  THE FRONT COUNTER (the arcade's level)
+// =====================================================================
+
+function counterInfo(state) { return CONFIG.counter[(state.counter || 1) - 1]; }
+function nextCounter(state) { return CONFIG.counter[state.counter || 1] || null; }
+// The lowest counter level where test(level) is true.
+function counterLevelFor(state, test) { const i = CONFIG.counter.findIndex(test); return i < 0 ? CONFIG.counter.length : i + 1; }
+function counterBlock(state) {
+  if (!nextCounter(state)) return "Top level!";
+  if (jobFor(state, "counter")) return "Being upgraded";
+  if (freeMechanics(state) <= 0) return mechanicsBusyText(state);
+  return "";
+}
+function buyCounter(state) {
+  const next = nextCounter(state);
+  if (!next || state.money < next.cost || counterBlock(state)) return null;
+  state.money -= next.cost;
+  return startJob(state, { kind: "counter", seconds: next.seconds });
+}
+
+// =====================================================================
+//  MECHANICS AND THEIR JOBS
+//  A job counts down in real time, even while the game is closed.
+// =====================================================================
+
+function freeMechanics(state) { return state.mechanics - state.jobs.length; }
+function jobFor(state, kind, type, up) { return state.jobs.find(j => j.kind === kind && (!type || j.type === type) && (!up || j.up === up)); }
+function mechanicsBusyText(state) { return (state.mechanics === 2 ? "Both" : "All") + " Mechanics are busy"; }
+function startJob(state, job) {
+  job.id = makeId(); job.total = job.seconds; job.left = job.seconds; job.spedUp = false; delete job.seconds;
+  state.jobs.push(job);
+  return job;
+}
+function jobName(job) {
+  if (job.kind === "counter") return "Front Counter";
+  if (job.kind === "sign") return CONFIG.sign.name;
+  return byId(CONFIG.machines, job.type).name + ": " + byId(CONFIG.upgrades, job.up).name;
+}
+function finishJob(state, job) {
+  state.jobs = state.jobs.filter(j => j !== job);
+  if (job.kind === "type") typeUpgrades(state, job.type)[job.up]++;
+  if (job.kind === "sign") state.sign = (state.sign || 0) + 1;
+  if (job.kind === "counter") {
+    const before = state.unlocked;
+    state.counter++;
+    state.unlocked = Math.max(state.unlocked, counterInfo(state).unlocks);
+    addStars(state, CONFIG.stars.counter);
+    job.newTypes = CONFIG.machines.slice(before, state.unlocked).map(d => d.id);
+  }
+  state.events.push({ type: "job", job: job });
+}
+function runJobs(state, seconds) {
+  const done = [];
+  for (const job of state.jobs.slice()) { job.left -= seconds; if (job.left <= 0) { finishJob(state, job); done.push(job); } }
+  return done;
+}
+// The code game makes a job faster (once per job).
+function speedUpJob(state, job, score) {
+  if (job.spedUp) return;
+  job.spedUp = true;
+  addStars(state, CONFIG.stars.speedUp);
+  if (score >= 1 && job.left < CONFIG.instantUnder) job.left = 0.01;
+  else job.left *= 1 - CONFIG.speedUpCut * Math.max(0, Math.min(1, score));
+}
+// A Fame Road reward: finish a job right now.
+function useInstantJob(state, job) {
+  if (!state.instantJobs) return false;
+  state.instantJobs--;
+  job.left = 0.01;
   return true;
+}
+
+// =====================================================================
+//  THE COIN BOX (money from time away waits here until you tap it)
+// =====================================================================
+
+function boxShare(state) { return CONFIG.boxShares[(state.boxLevel || 1) - 1]; }
+function collectBox(state, bonus) {
+  const amount = Math.floor(state.coinBox * (1 + (bonus || 0)));
+  state.money += amount; state.totalEarned += amount;
+  state.coinBox = 0; state.boxAway = 0;
+  return amount;
+}
+
+// =====================================================================
+//  FAME STARS AND THE FAME ROAD
+// =====================================================================
+
+function addStars(state, n) { if (state.stars !== undefined) state.stars += n; }
+// Stars needed to reach step k (counting all the steps before it).
+function starsForStep(k) { let total = 0; for (let i = 1; i <= k; i++) total += 15 + 5 * i; return total; }
+function stepsReached(state) { let k = 0; while (k < CONFIG.road.length && state.stars >= starsForStep(k + 1)) k++; return k; }
+function rewardWaiting(state) { return state.roadClaimed < stepsReached(state); }
+function coinReward(state, minutes) { return niceNumber(Math.max(2, state.rate) * 60 * minutes); }
+// Claims the next reward. Returns it (with .amount for coins).
+function claimStep(state) {
+  if (!rewardWaiting(state)) return null;
+  const r = Object.assign({}, CONFIG.road[state.roadClaimed]);
+  state.roadClaimed++;
+  if (r.kind === "coins") { r.amount = coinReward(state, r.minutes); state.money += r.amount; }
+  if (r.kind === "look") { state.looks[r.look] = true; }
+  if (r.kind === "box") state.boxLevel = Math.max(state.boxLevel, r.level);
+  if (r.kind === "mechanic") state.mechanics++;
+  if (r.kind === "builds") state.instantBuilds += r.count;
+  if (r.kind === "job") state.instantJobs++;
+  return r;
 }
 
 function removeMachine(state, m) {
@@ -325,9 +452,13 @@ function fixOutage(state) {
 // ----- Rooms ----------------------------------------------------------
 
 function nextRoomCost(state) { return state.rooms < 6 ? CONFIG.roomCosts[state.rooms] : null; }
+function roomBlock(state) {
+  if (state.rooms >= counterInfo(state).maxRooms) return "Needs Counter level " + counterLevelFor(state, c => c.maxRooms > state.rooms);
+  return "";
+}
 function buyRoom(state) {
   const cost = nextRoomCost(state);
-  if (cost === null || state.money < cost) return false;
+  if (cost === null || state.money < cost || roomBlock(state)) return false;
   state.money -= cost;
   state.rooms++;
   buildMap(state);
@@ -348,7 +479,13 @@ function newArcadeState(name, look) {
     look: look || randomLook(),
     money: CONFIG.startMoney,
     rooms: 1,
-    unlocked: 0,              // how many machine types are unlocked
+    unlocked: CONFIG.counter[0].unlocks,   // how many machine types are unlocked
+    counter: 1,               // the Front Counter's level
+    mechanics: CONFIG.mechanics,
+    jobs: [],
+    coinBox: 0, boxAway: 0, boxLevel: 1,
+    stars: 0, roadClaimed: 0, looks: {}, typesPlaced: ["claw"], instantBuilds: 0, instantJobs: 0,
+    happy: 0, happyHour: 0, happyHourStars: 0,
     machines: [],
     day: 0,
     rep: 0.6,                 // how happy customers have been (0 to 1)
@@ -363,6 +500,10 @@ function newArcadeState(name, look) {
     savedAt: Date.now(),
   };
   prepareState(state);
+  // You start with one claw machine, already working.
+  const first = placeMachine(state, "claw", 0, 0, 3, true);
+  first.status = "ok"; first.buildLeft = 0;
+  state.spawnIn = 0.5;
   return state;
 }
 
@@ -383,6 +524,16 @@ function prepareState(state) {
     }
   }
   if (state.bugIn === undefined) state.bugIn = newBugTime();
+  // Older saves: no Front Counter yet. Pick the level that has every machine they unlocked.
+  if (!state.counter) {
+    state.counter = counterLevelFor(state, c => c.unlocks >= state.unlocked);
+    state.stars = 50 * (state.counter - 1);
+  }
+  state.unlocked = Math.max(state.unlocked, counterInfo(state).unlocks);
+  const defaults = { mechanics: CONFIG.mechanics, jobs: [], coinBox: 0, boxAway: 0, boxLevel: 1, stars: 0, roadClaimed: 0, looks: {},
+    instantBuilds: 0, instantJobs: 0, happy: 0, happyHour: 0, happyHourStars: 0 };
+  for (const k in defaults) if (state[k] === undefined) state[k] = defaults[k];
+  if (!state.typesPlaced) state.typesPlaced = [...new Set(state.machines.map(m => m.type))];
   state.sign = state.sign || 0;
   // Only one bug at a time
   let bugged = false;
@@ -417,6 +568,15 @@ function spawnCustomer(state) {
   };
   state.customers.push(c);
   chooseMachine(state, c);
+}
+
+// Happy customers (who got their wish) earn a Fame star now and then.
+function happyStar(state) {
+  if (state.stars === undefined) return;
+  if (state.playSeconds - state.happyHour > 3600) { state.happyHour = state.playSeconds; state.happyHourStars = 0; }
+  if (++state.happy >= CONFIG.stars.happyEvery && state.happyHourStars < CONFIG.stars.happyPerHour) {
+    state.happy = 0; state.happyHourStars++; addStars(state, 1);
+  }
 }
 
 function say(c, bubble, seconds) { c.bubble = bubble; c.bubbleT = seconds; }
@@ -567,7 +727,7 @@ function updateMachine(state, m, dt) {
       c.tokens--;
       c.energy -= c.tired;
       c.last = m.id;
-      if (c.wish === m.type && !c.gotWish) { c.gotWish = true; say(c, "heart", 2.5); }
+      if (c.wish === m.type && !c.gotWish) { c.gotWish = true; say(c, "heart", 2.5); happyStar(state); }
       if (c.tokens <= 0 || c.energy <= 0) leave(state, c);
       else { c.mode = "walk"; chooseMachine(state, c); }
     }
@@ -598,6 +758,7 @@ function updateMachine(state, m, dt) {
 function tick(state, dt) {
   state.day += dt / CONFIG.secondsPerDay;
   state.playSeconds += dt;
+  runJobs(state, dt);
   for (const m of state.machines) updateMachine(state, m, dt);
 
   // Bugs: one machine at a time, every few minutes
@@ -655,8 +816,11 @@ function catchUp(state) {
     m.buildLeft -= seconds;
     if (m.buildLeft <= 0) { m.status = "ok"; m.buildLeft = 0; report.built++; }
   }
-  // Steady earnings the whole time you're away (no bugs or outages slow it down).
-  report.money = Math.floor(state.rate * CONFIG.awayShare * seconds);
+  // Mechanic jobs keep going while you're away.
+  report.jobs = runJobs(state, seconds);
+  // Steady earnings the whole time you're away, into the coin box.
+  report.money = Math.floor(state.rate * boxShare(state) * seconds);
+  state.boxAway += seconds;
   const built = state.machines.filter(m => m.status !== "building");
   // At most one bug waits for you.
   if (!state.machines.some(m => m.status === "bug") && built.length && seconds > state.bugIn) {
@@ -667,8 +831,8 @@ function catchUp(state) {
     state.outageIn -= seconds;
     if (state.outageIn <= 0) { state.outage = true; report.outage = true; }
   }
-  state.money += report.money;
-  state.totalEarned += report.money;
+  state.coinBox += report.money;
+  report.box = state.coinBox;
   state.day += seconds / CONFIG.awaySecondsPerDay;
   return report;
 }
@@ -681,7 +845,9 @@ const SAVE_KEY = "pixelEmpireArcade.slot.";
 
 function saveData(state) {
   const keep = {};
-  for (const k of ["v", "name", "look", "money", "rooms", "unlocked", "day", "rep", "rate", "outage", "outageIn", "bugIn", "typeUp", "sign", "totalEarned", "playSeconds", "hints"]) keep[k] = state[k];
+  for (const k of ["v", "name", "look", "money", "rooms", "unlocked", "day", "rep", "rate", "outage", "outageIn", "bugIn", "typeUp", "sign", "totalEarned", "playSeconds", "hints",
+    "counter", "mechanics", "jobs", "coinBox", "boxAway", "boxLevel", "stars", "roadClaimed", "looks", "typesPlaced", "instantBuilds", "instantJobs",
+    "happy", "happyHour", "happyHourStars"]) keep[k] = state[k];
   keep.savedAt = Date.now();
   keep.machines = state.machines.map(m => ({
     id: m.id, type: m.type, name: m.name, room: m.room, row: m.row, col: m.col,
@@ -707,5 +873,5 @@ function deleteSave(slot) { try { localStorage.removeItem(SAVE_KEY + slot); } ca
 
 if (typeof module !== "undefined") module.exports = {
   newArcadeState, tick, catchUp, placeMachine, placeCost, swapMachine, unlockNext, buyUpgrade, buyRoom, nextRoomCost, cantPlace,
-  machineDef, upgradeCost, typeStub, typeUpgrades, signCost, buySign, fixBug, fixOutage, speedUpBuild, capacity, SLOTS_PER_ROW,
+  machineDef, upgradeCost, typeStub, buyCounter, counterInfo, nextCounter, claimStep, stepsReached, collectBox, speedUpJob, freeMechanics, typeUpgrades, signCost, buySign, fixBug, fixOutage, speedUpBuild, capacity, SLOTS_PER_ROW,
 };

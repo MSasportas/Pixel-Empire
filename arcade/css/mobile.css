@@ -195,3 +195,55 @@ body.phone .h-cust.full { border-color: var(--pink); }
 .up-group { border-left: 3px solid rgba(46, 230, 255, 0.35); padding-left: 8px; margin: 10px 0; }
 .up-head { display: flex; align-items: center; gap: 8px; margin-bottom: 2px; }
 .up-row { padding-left: 4px; }
+
+/* ----- Big systems: Fame Road, Mechanics, Front Counter ----- */
+.h-fame { cursor: pointer; pointer-events: auto; display: flex; align-items: center; gap: 4px; }
+.h-fame #hud-fame { color: var(--yellow); }
+.fame-bar { display: inline-block; width: 46px; height: 6px; background: #3a2c5c; border-radius: 3px; overflow: hidden; margin-left: 4px; }
+.fame-bar > span { display: block; height: 100%; width: 0; background: var(--yellow); box-shadow: 0 0 6px var(--yellow); transition: width 0.3s; }
+
+body.phone .h-fame { pointer-events: auto; border-color: rgba(255, 210, 63, 0.7); }
+#btn-mech { box-shadow: 0 0 0 2px #ff7a3d, 0 4px 0 2px #8a3a14; }
+body.phone .hud-box.tr #btn-mech { position: absolute; left: 0; bottom: 76px; width: 56px; height: 56px; background: rgba(15, 8, 32, 0.92); }
+body.phone .hud-box.tr #btn-mech .btn-icon { font-size: 22px; }
+.job-time { opacity: 0.8; font-size: 0.9em; }
+.job-box .bar { margin: 6px 0; height: 10px; }
+.job-box .bar-fill { background: #ff7a3d; box-shadow: 0 0 6px #ff7a3d; }
+.coin-box { border-color: var(--yellow) !important; }
+.counter-level { display: flex; align-items: center; gap: 10px; margin: 10px 0 4px; }
+.counter-level .lights { display: flex; gap: 3px; }
+.counter-level .light { width: 12px; height: 12px; border-radius: 3px; background: #2a1f45; }
+.counter-level .light.on { background: var(--yellow); box-shadow: 0 0 6px var(--yellow); }
+.legend { text-align: center; font-size: 18px; }
+.fame-top { position: sticky; top: 0; background: var(--panel); padding: 4px 0 8px; z-index: 1; }
+.fame-top .bar { height: 10px; }
+.road-step { border-left-color: var(--yellow); }
+.road-step.done { opacity: 0.55; }
+.road-step.road-now { background: rgba(255, 210, 63, 0.14); box-shadow: inset 0 0 0 2px var(--yellow); }
+.road-step.big-step .item-main { font-weight: 900; }
+.step-num { font-family: var(--title-font); font-size: 10px; color: var(--yellow); min-width: 22px; text-align: center; }
+.mg-chips { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; margin-top: 14px; }
+.mg-chip { font-family: monospace; font-size: 20px; padding: 10px 14px; min-width: 48px; min-height: 48px; background: var(--panel2); color: #fff; border: 2px solid var(--cyan); border-radius: 10px; cursor: pointer; }
+.mg-chip.used { visibility: hidden; }
+.mg-chip.wrong { animation: shake 0.3s; border-color: var(--pink); }
+.mg-code .slot-left { color: rgba(255, 255, 255, 0.25); }
+/* Supercell-style hints: a red dot on the one button worth pressing next */
+#btn-mech, #btn-shop, .h-fame { position: relative; }
+.has-dot::after {
+  content: ""; position: absolute; top: -5px; right: -5px; width: 14px; height: 14px; border-radius: 50%;
+  background: #ff2d4a; border: 2px solid #fff; box-shadow: 0 0 6px #ff2d4a; animation: dot-pop 1.2s ease-in-out infinite;
+}
+@keyframes dot-pop { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.25); } }
+.fame-bar { width: 54px; }
+body.phone .h-fame { margin-left: auto; padding: 3px 8px; }
+.btn-bar { display: block; height: 4px; margin: 3px 4px 0; background: #3a2c5c; border-radius: 2px; overflow: hidden; }
+.btn-bar > span { display: block; height: 100%; width: 0; background: #ff7a3d; }
+body.phone #btn-mech .btn-text { display: none; }
+body.phone #btn-mech .btn-bar { width: 36px; margin: 4px auto 0; }
+#btn-mech .btn-bar.hidden { display: none; }
+.mg-code .slot-left { display: inline-block; min-width: 1.2em; margin: 0 7px; border-bottom: 3px dashed rgba(46, 230, 255, 0.6); }
+.road-step .muted { font-weight: 600; }
+body.phone .hud-box.tl { flex-wrap: nowrap; }
+body.phone .h-fame { flex-shrink: 0; padding: 3px 7px 3px 6px; }
+body.phone .h-fame .fame-bar { width: 30px; }
+body.phone .h-money { min-width: 0; flex-shrink: 1; overflow: hidden; }

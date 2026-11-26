@@ -2,19 +2,23 @@
 //  PIXEL EMPIRE ARCADE - MINI-GAMES
 //  ---------------------------------------------------------------------
 //  They pop up in their own window in front of the arcade.
-//    Write the code!   speeds up building a machine (from the studio game)
+//    Write the code!   tap the code blocks in order: speeds up building a
+//                      machine or a Mechanic's job (from the studio game)
 //    Squash the bugs!  fixes a machine that caught a bug (from the studio game)
 //    Fix the power!    a maze: lead the electricity to the light
+//    Coin rush!        catch falling coins for a bonus on the coin box
 // =====================================================================
 
 const Minigames = {
   info: {
-    code:  { title: "Write the code!",  jobs: 3, seconds: 45, mistake: 0.1,
-             how: "Type the code exactly as it is. Every line you finish builds the machine faster!" },
+    code:  { title: "Write the code!",  jobs: 3, seconds: 30, mistake: 0.1,
+             how: "Tap the code blocks in the right order to build each line. Every line you finish makes it faster!" },
     bugs:  { title: "Squash the bugs!", jobs: 0, seconds: 20, mistake: 0.1,
              how: "Tap every bug before it reaches the bottom. Let 5 or fewer get away to fix the machine!" },
     maze:  { title: "Fix the power!",   jobs: 1, seconds: 45, mistake: 0,
              how: "Lead the electricity from the plug to the light bulb. Use the arrow keys, the D-pad, or tap the squares next to the wire." },
+    coins: { title: "Coin rush!",       jobs: 0, seconds: 15, mistake: 0, noMistakes: true,
+             how: "Tap the coins before they fall! Every coin you catch adds to your bonus." },
   },
 
   // Small, simple lines of code for kids (the easy ones from the studio game).
@@ -34,7 +38,7 @@ const Minigames = {
     overlay.innerHTML =
       '<div class="mg-box panel" style="border-color:' + color + '">' +
       '<div class="mg-top"><h2 style="color:' + color + ";text-shadow:0 0 8px " + color + '">' + info.title + '</h2>' +
-      '<div class="mg-stats"><b id="mg-done"></b> &nbsp; Mistakes: <b id="mg-miss">0</b> &nbsp; Time: <b id="mg-time">' + game.timeLeft + '</b></div></div>' +
+      '<div class="mg-stats"><b id="mg-done"></b> <span' + (info.noMistakes ? ' class="hidden"' : "") + '>&nbsp; Mistakes: <b id="mg-miss">0</b></span> &nbsp; Time: <b id="mg-time">' + game.timeLeft + '</b></div></div>' +
       '<p class="mg-how">' + info.how + '</p>' +
       '<div class="mg-arena" id="mg-arena"></div>' +
       '</div>';
@@ -106,38 +110,70 @@ const Minigames = {
     return a;
   },
 
-  // ----- Building a machine: Write the code -----------------------------
+  // ----- Speeding things up: Write the code ------------------------------
+  // Each line of code is cut into blocks. Tap them in the right order.
   setup_code(game) {
-    game.arena.innerHTML = '<div class="mg-code" id="mg-code"></div><input id="mg-input" class="mg-input" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false">';
-    const codeEl = document.getElementById("mg-code");
-    const input = document.getElementById("mg-input");
+    game.arena.innerHTML = '<div class="mg-code" id="mg-code"></div><div class="mg-chips" id="mg-chips"></div>';
+    const codeEl = document.getElementById("mg-code"), chipsEl = document.getElementById("mg-chips");
     const lines = this.shuffle(this.codeLines);
-    let line = "", n = 0;
-    game.keepFocus = () => input.focus();
+    let parts = [], placed = 0, n = 0;
+    game.nextBlock = () => parts[placed];
     const draw = () => {
-      const typed = input.value.length;
-      codeEl.innerHTML = '<span class="typed">' + esc(line.slice(0, typed)) + '</span><span class="cursor">' + esc(line.charAt(typed) || " ") + "</span>" + esc(line.slice(typed + 1));
+      codeEl.innerHTML = parts.map((p, i) => i < placed ? '<span class="typed">' + esc(p) + "</span>" : '<span class="slot-left">' + "&nbsp;".repeat(p.length) + "</span>").join("");
     };
-    const next = () => { line = lines[n++ % lines.length]; input.value = ""; draw(); };
-    input.addEventListener("input", () => {
-      if (game.over) return;
-      const value = input.value;
-      // Every wrong key is a mistake, and it doesn't get typed.
-      if (!line.startsWith(value)) {
-        let ok = 0;
-        while (ok < value.length && value[ok] === line[ok]) ok++;
-        input.value = line.slice(0, ok);
-        input.classList.remove("wrong"); void input.offsetWidth; input.classList.add("wrong");
-        game.miss();
+    const next = () => {
+      parts = lines[n++ % lines.length].match(/[A-Za-z_]+|\d+|"[^"]*"|\+\+|--|[()=]/g);
+      placed = 0;
+      chipsEl.innerHTML = "";
+      for (const p of this.shuffle(parts)) {
+        const chip = document.createElement("button");
+        chip.className = "mg-chip"; chip.textContent = p;
+        chip.addEventListener("click", () => {
+          if (game.over || chip.classList.contains("used")) return;
+          if (p === parts[placed]) {
+            chip.classList.add("used"); placed++; Sound.play("click"); draw();
+            if (placed >= parts.length) { game.hit(); if (!game.over) setTimeout(next, 250); }
+          } else {
+            chip.classList.remove("wrong"); void chip.offsetWidth; chip.classList.add("wrong");
+            game.miss();
+          }
+        });
+        chipsEl.appendChild(chip);
       }
       draw();
-      if (input.value === line) { game.hit(); if (!game.over) next(); }
-    });
+    };
     next();
-    // Focus right away (while your tap is still happening), so the
-    // phone keyboard opens straight away.
-    input.focus();
-    setTimeout(() => input.focus(), 50);
+  },
+
+  // ----- Coin rush: catch the falling coins -------------------------------
+  setup_coins(game) {
+    let spawn = 0.2, made = 0;
+    game.total = 1;
+    game.isComplete = () => false;
+    game.part = () => made ? game.done / made : 0;
+    game.countText = () => "Coins: " + game.done;
+    game.update = dt => {
+      spawn -= dt;
+      const w = game.arena.clientWidth, h = game.arena.clientHeight;
+      if (spawn <= 0 && game.timeLeft > 1) {
+        spawn = 0.45 + Math.random() * 0.3;
+        made++;
+        const el = document.createElement("div");
+        el.className = "mg-thing"; el.textContent = "🪙";
+        const item = { el: el, x: 20 + Math.random() * (w - 60), y: -30, v: h / (2.2 + Math.random() * 0.8), t: Math.random() * 6 };
+        el.addEventListener("pointerdown", () => { if (item.dead || game.over) return; item.dead = true; el.remove(); game.hit(); });
+        game.arena.appendChild(el);
+        game.items.push(item);
+      }
+      for (const it of game.items) {
+        if (it.dead) continue;
+        it.y += it.v * dt; it.t += dt;
+        it.el.style.transform = "translate(" + (it.x + Math.sin(it.t * 3) * 12) + "px," + it.y + "px)";
+        if (it.y > h) { it.el.remove(); it.dead = true; }
+      }
+      game.items = game.items.filter(i => !i.dead);
+    };
+    game.resultText = score => "You caught <b>" + game.done + "</b> coins!<br>Bonus: <b>+" + Math.round(score * CONFIG.coinRush.bonus * 100) + "%</b>";
   },
 
   // ----- Fixing a machine: Squash the bugs ----------------------------------

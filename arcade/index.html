@@ -48,9 +48,10 @@
     <div class="hud-box tl">
       <div class="hud-line h-money"><span class="hud-icon">💰</span><span class="hud-label">Money</span> <b id="hud-money" class="pink">$0</b> <span id="hud-rate" class="hud-rate"></span></div>
       <div class="hud-line h-cust"><span class="hud-icon">👥</span><span class="hud-label">Customers</span> <b id="hud-customers" class="cyan">0</b></div>
+      <div class="hud-line h-fame" data-act="fame" title="Fame Road"><span class="hud-icon">⭐</span><span class="hud-label">Fame</span> <span class="fame-bar"><span id="hud-fame-bar"></span></span></div>
       <div class="hud-line h-date"><span class="hud-icon">📅</span><span class="hud-label">Date</span> <span id="hud-time" class="hud-date"></span></div>
     </div>
-    <div class="hud-box tr"><button id="btn-shop" class="btn" data-act="shop"><span class="btn-icon">🛒</span><span class="btn-text">Shop</span></button> <button id="btn-menu" class="btn ghost" data-act="menu"><span class="btn-icon">☰</span><span class="btn-text">Menu</span></button></div>
+    <div class="hud-box tr"><button id="btn-mech" class="btn ghost" data-act="mechanics" aria-label="Mechanics"><span class="btn-icon">🔧</span><span class="btn-text">Mechanics</span><span class="btn-bar"><span id="mech-bar"></span></span></button> <button id="btn-shop" class="btn" data-act="shop"><span class="btn-icon">🛒</span><span class="btn-text">Shop</span></button> <button id="btn-menu" class="btn ghost" data-act="menu"><span class="btn-icon">☰</span><span class="btn-text">Menu</span></button></div>
     <button id="prompt" class="hidden"></button>
     <!-- Zoom buttons (you can also pinch, use the mouse wheel, + and - keys, or the controller's bumpers) -->
     <div id="zoom-box">
@@ -73,10 +74,12 @@
   <script src="js/config.js"></script>     <!-- all the numbers -->
   <script src="js/game.js"></script>       <!-- the rules -->
   <script src="js/art.js"></script>        <!-- pixel art -->
+  <script src="js/systems-art.js"></script> <!-- art for the Counter, Mechanics and Fame Road -->
   <script src="js/music.js"></script>      <!-- music and sounds -->
   <script src="js/minigames.js"></script>  <!-- mini-games -->
   <script src="js/input.js"></script>      <!-- keyboard, controller, touch -->
   <script src="js/ui.js"></script>         <!-- screens and buttons -->
+  <script src="js/systems-ui.js"></script> <!-- screens for the Counter, Mechanics and Fame Road -->
   <script src="js/main.js"></script>       <!-- starts everything -->
 </body>
 </html>
