@@ -700,18 +700,6 @@ const UI = {
         g.globalAlpha = 1;
       } else if (l.kind === "pill") {
         pill(x, y, l.text, l.color, "800 " + Math.round(13 * z) + "px Nunito, sans-serif");
-      } else if (l.kind === "badge") {
-        // Gold stars = upgrades bought. Green arrow = you can buy one now.
-        let text = l.stars ? "★" + l.stars : "";
-        g.font = "900 " + Math.round(13 * z) + "px Nunito, sans-serif";
-        if (text) pill(x, y, text, "#ffd23f", g.font);
-        if (l.up) {
-          const ax = text ? x + (g.measureText(text).width / 2 + 18 * z) : x, r = 10 * z;
-          const bob = Math.sin(this.time * 5) * 2;
-          g.fillStyle = "#7cff6b"; g.beginPath(); g.arc(ax, y + bob, r, 0, Math.PI * 2); g.fill();
-          g.strokeStyle = "#0b0618"; g.lineWidth = 2; g.stroke();
-          g.fillStyle = "#0b0618"; g.fillText("⬆", ax, y + bob + 1);
-        }
       } else if (l.kind === "sign") {
         g.font = "900 " + Math.round(20 * z) + "px Nunito, sans-serif";
         g.shadowColor = "#ff3ea5"; g.shadowBlur = 12;
@@ -778,7 +766,7 @@ const UI = {
     if (!t || this.overlayOpen()) { pr.classList.add("hidden"); return; }
     let text = "";
     if (t.kind === "spot") text = "Add a game";
-    if (t.kind === "machine") text = esc(t.m.name) + (t.m.status === "building" ? " · Build it faster" : t.m.status === "bug" ? " · Fix the bug!" : "");
+    if (t.kind === "machine") text = t.m.status === "ok" && canAffordUpgrade(state, t.m) ? "⬆ Upgrade " + esc(t.m.name) : esc(t.m.name) + (t.m.status === "building" ? " · Build it faster" : t.m.status === "bug" ? " · Fix the bug!" : "");
     if (t.kind === "room") text = "Buy a new room · " + money(nextRoomCost(state));
     if (t.kind === "fuse") text = state.outage ? "Fix the power!" : "Fuse box";
     const key = Input.device === "gamepad" ? '<span class="key pad">A</span>' : Input.device === "touch" ? '<span class="key">TAP</span>' : '<span class="key">SPACE</span>';
