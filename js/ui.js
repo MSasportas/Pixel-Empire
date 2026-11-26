@@ -435,7 +435,7 @@ const UI = {
 
   // The big launch moment: banner, confetti and the team cheering.
   showLaunch(g) {
-    const firstMinute = playersBetween(g, 0, 60);
+    const firstMinute = playersInSeconds(g, 0, 60);
     $("banner").innerHTML = '<div class="banner-small">Launched!</div><div class="banner-name">' + esc(g.name) + '</div>' +
       '<div class="banner-small">First minute: ' + fmt(firstMinute) + ' players · ' + money(firstMinute * g.moneyPerPlayer) + '</div>';
     $("banner").classList.remove("hidden", "pop");
@@ -673,12 +673,15 @@ const UI = {
     const game = { genre: f.genre, price: f.price, size: f.size, features: f.features,
       sequelOf: original ? original.id : null, sequelBonus: original ? sequelInfo(state, original).bonus : 0 };
     const n = previewLaunch(state, game);
-    const fake = { peak: n.players, fadeSeconds: n.fadeSeconds };
-    const firstHour = playersBetween(fake, 0, 3600);
+    const fake = { peak: n.players, fadeDays: n.fadeDays, lifeDays: n.lifeDays };
+    const firstHour = playersInSeconds(fake, 0, 3600);
+    const opening = playersInSeconds(fake, 0, CONFIG.openingDays * CONFIG.secondsPerDay);
     const repeats = !original && state.lastGenre === f.genre;
     return '<div class="estimate"><div><b>This game</b> ' + starsHtml(n.stars) + "</div>" +
       "<div>At launch: " + ratesHtml(n) + "</div>" +
+      '<div>Opening weekend: <span class="cyan">' + fmt(opening) + ' players</span></div>' +
       '<div>First hour out: <span class="cyan">' + fmt(firstHour) + ' players</span> · <span class="pink">' + money(firstHour * n.moneyPerPlayer) + '</span> · <span class="yellow">' + fmt(firstHour * n.fanRate) + " fans</span></div>" +
+      '<div class="muted">Sells for about ' + fmtDays(n.lifeDays) + ", then it's obsolete. More stars and bigger games sell for longer.</div>" +
       (repeats ? '<div class="muted">Your last game was ' + byId(CONFIG.genres, f.genre).name + " too. Fans want something new, so this one gets fewer players. (Sequels don't have this problem.)</div>" : "") +
       "</div>";
   },
@@ -858,7 +861,7 @@ const UI = {
       const size = byId(CONFIG.sizes, g.size || "small").label;
       const stage = salesStage(g);
       const stageText = '<span class="stage stage-' + stage.name.toLowerCase() + '">' + stage.name + "</span>" +
-        (stage.next ? ' <span class="muted">' + stage.next + " in " + fmtDays(secondsToDays(stage.secondsToNext)) + "</span>" : ' <span class="muted">still selling a little</span>');
+        (stage.next ? ' <span class="muted">' + stage.next + " in " + fmtDays(stage.daysToNext) + "</span>" : ' <span class="muted">nobody buys it any more</span>');
       const seq = sequelInfo(state, g);
       let right = "";
       if (seq.made) right = '<span class="muted small">Sequel made</span>';
@@ -867,8 +870,9 @@ const UI = {
       else right = '<button class="btn small glow" data-act="sequel" data-id="' + g.id + '"><span class="sym">★</span> Create sequel<br>+' + Math.round(seq.bonus * 100) + "% players</button>";
       html += '<div class="item"><div class="item-main"><b>' + esc(g.name) + "</b> " + (g.hit ? '<span class="hit-tag">HIT</span> ' : "") + (g.stars ? starsHtml(g.stars) : "") + (g.bugs ? " 🐞" : "") + ' <span class="muted">' + genre.name + " · " + size + " · " + price.label + "</span>" +
         "<div>Now: " + ratesHtml(gameRates(g)) + "</div>" +
-        '<div>So far: <span class="cyan">' + fmt(g.players) + ' players</span> · <span class="pink">' + money(g.money || 0) + '</span> · <span class="yellow">' + fmt(g.fans || 0) + " fans</span></div>" +
-        '<div class="muted">Out for ' + fmtDays(g.days !== undefined ? g.days : secondsToDays(g.age)) + " · Launched " + fmtDate(g.launchDay || 0) + " · " + stageText + "</div></div>" + right + "</div>";
+        '<div>So far: <span class="cyan">' + fmt(g.players) + ' players</span> · <span class="pink">' + money(g.money || 0) + '</span> · <span class="yellow">' + fmt(g.fans || 0) + " fans</span>" +
+        (g.opening ? ' <span class="muted">· Opening weekend ' + fmt(g.opening) + "</span>" : "") + "</div>" +
+        '<div class="muted">Out for ' + fmtDays(g.days !== undefined ? g.days : g.age) + " · Launched " + fmtDate(g.launchDay || 0) + " · " + stageText + "</div></div>" + right + "</div>";
     }
     return { title: "Your games (" + state.released.length + ")", html: html };
   },
@@ -893,11 +897,26 @@ const UI = {
   },
 
   panel_trophies() {
-    let html = "";
-    for (const t of CONFIG.trophies) {
+    // Records: your best single game so far.
+    const r = state.records || {};
+    const rec = (label, key, show) => r[key] && r[key].value > 0
+      ? '<div class="item"><div class="item-main">' + label + ' <b>' + show(r[key].value) + '</b> <span class="muted">' + esc(r[key].game) + "</span></div></div>" : "";
+    let records = rec("Biggest opening weekend:", "opening", v => fmt(v) + " players") +
+      rec("Most players in one game:", "players", v => fmt(v)) +
+      rec("Most money from one game:", "money", v => money(v));
+    let html = records ? "<h3>Records</h3>" + records : "";
+    const row = (t, extra) => {
       const got = state.trophies[t.id];
-      html += '<div class="item' + (got ? "" : " dim") + '"><div class="item-main">' + (got ? "🏆 " : "🔒 ") + "<b>" + t.name + '</b></div><span class="muted">' + money(t.reward) + "</span></div>";
+      return '<div class="item' + (got ? "" : " dim") + '"><div class="item-main">' + (got ? "🏆 " : "🔒 ") + "<b>" + t.name + "</b>" + (extra && !got ? '<div class="muted small">' + extra + "</div>" : "") + '</div><span class="muted">' + money(t.reward) + "</span></div>";
+    };
+    html += "<h3>Game milestones</h3>";
+    for (const t of CONFIG.trophies.filter(t => t.stat)) {
+      const best = bestGameStat(state, t.stat);
+      const show = t.stat === "money" ? money(best) : t.stat === "stars" ? best + (best === 1 ? " star" : " stars") : t.stat === "years" ? fmtDays(best * 360) : fmt(best);
+      html += row(t, best > 0 ? "Your best so far: " + show : "");
     }
+    html += "<h3>Studio</h3>";
+    for (const t of CONFIG.trophies.filter(t => !t.stat)) html += row(t);
     return { title: "Trophies", html: html };
   },
 

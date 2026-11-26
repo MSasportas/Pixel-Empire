@@ -74,7 +74,7 @@ function newGameState(studioName, legacy, me) {
 
   const now = Date.now();
   return {
-    version: 2,
+    version: 3,
     scaled: true,
     studioName: studioName || "My Studio",
     createdAt: now,
@@ -117,7 +117,7 @@ function upgradeSave(state) {
       state.money *= 25; state.fans *= 25; state.playersTotal *= 25;
       for (const g of state.released) {
         g.peak *= 25; g.players *= 25;
-        g.fadeSeconds = CONFIG.fadeSeconds * (g.fadeSeconds / 600);
+        g.fadeSeconds = 2000 * (g.fadeSeconds / 600);
       }
     }
   }
@@ -131,7 +131,20 @@ function upgradeSave(state) {
     if (g.fans === undefined) g.fans = g.players * g.fanRate;
     if (g.money === undefined) g.money = g.players * g.moneyPerPlayer;
   }
-  state.version = 2;
+  if (state.version < 3) {
+    // Version 3: games age in game days (not seconds) and become
+    // obsolete one day. Old games keep their place in their life.
+    for (const g of state.released) {
+      const life = (g.fadeSeconds || 2000) / 2000 * starLife(g.stars || 1);
+      g.fadeDays = CONFIG.fadeDays * life;
+      g.lifeDays = CONFIG.lifeDays * life;
+      g.age = (g.age || 0) / 12;
+      delete g.fadeSeconds;
+      if (g.opening === undefined) g.opening = 0;
+    }
+  }
+  if (!state.records) state.records = {};
+  state.version = 3;
   return state;
 }
 
@@ -285,6 +298,7 @@ function judgeHit(state, game) {
   game.hitRatio = ratio;
   game.hit = ratio >= CONFIG.hitRatio && game.fansAtYear > 0;
   if (game.hit) {
+    giveTrophy(state, "first_hit", game.name);
     game.sequelBonus = Math.max(CONFIG.sequelMinBonus, Math.min(CONFIG.sequelMaxBonus, ratio - CONFIG.hitRatio + CONFIG.sequelMinBonus));
     if (!game.sequelId) {
       addMail(state, randomFanName(), game.name + " is a HIT! It won " + Math.round(ratio * 10) / 10 + " times as many fans as your recent games. When is " +
@@ -317,53 +331,82 @@ function launchNumbers(state, project) {
     * repeatMultiplier(state, project.genre, !!project.sequelOf) * fanBoost(state) * sequelBoost;
   let fanRate = CONFIG.baseFanRate * price.fans * genre.loyal * featFans;
   if (project.bugs) fanRate *= CONFIG.bugFanPenalty;
+  const stars = starsFor(power);
+  const life = fade * starLife(stars);
   return {
     peak: peak,                         // players per second at launch
     fanRate: Math.min(fanRate, 0.9),    // share of players who become fans
     moneyPerPlayer: price.money,
-    fadeSeconds: CONFIG.fadeSeconds * fade,
+    fadeDays: CONFIG.fadeDays * life,   // how fast sales fade (game days)
+    lifeDays: CONFIG.lifeDays * life,   // when it becomes obsolete (game days)
     power: power,
-    stars: starsFor(power),
+    stars: stars,
   };
 }
 
-// How many players a released game gets between age a and age b
-// (in seconds). Sales fade: rate = peak / (1 + age / fade) ^ fadePower.
-// (This is the area under the "players per second" curve.)
-function playersBetween(game, a, b) {
-  const f = game.fadeSeconds, q = 1 - CONFIG.fadePower, old = CONFIG.oldShare;
-  const fading = q === 0
-    ? f * Math.log((1 + b / f) / (1 + a / f))
-    : f / q * (Math.pow(1 + b / f, q) - Math.pow(1 + a / f, q));
-  return game.peak * (old * (b - a) + (1 - old) * fading);
+// How much longer than usual a game with this many stars keeps selling.
+// (Half stars are halfway between.)
+function starLife(stars) {
+  const t = CONFIG.starLife;
+  const i = Math.max(0, Math.min(t.length - 1, stars - 1));
+  const lo = Math.floor(i), hi = Math.min(t.length - 1, lo + 1);
+  return t[lo] + (t[hi] - t[lo]) * (i - lo);
 }
 
-function playersPerSecondAt(game, age) {
-  const old = CONFIG.oldShare;
-  return game.peak * (old + (1 - old) / Math.pow(1 + age / game.fadeSeconds, CONFIG.fadePower));
+// A game's sales, as a share of its launch-day sales, when it is
+// "days" game days old. It fades over time, winds down near the end of
+// its life, and is 0 once it's obsolete.
+function salesShare(game, days) {
+  const life = game.lifeDays;
+  if (days >= life) return 0;
+  let share = 1 / Math.pow(1 + days / game.fadeDays, CONFIG.fadePower);
+  const windStart = life * CONFIG.windDown;
+  if (days > windStart) share *= 1 - (days - windStart) / (life - windStart);
+  return share;
+}
+
+// The average sales share between age a and age b (in game days).
+function averageShare(game, a, b) {
+  if (b - a < 1e-9) return salesShare(game, a);
+  const n = Math.min(200, Math.max(1, Math.ceil((b - a) / 2)));
+  const step = (b - a) / n;
+  let sum = 0;
+  for (let i = 0; i < n; i++) sum += salesShare(game, a + (i + 0.5) * step);
+  return sum / n;
+}
+
+// How many players a game gets in "seconds" of real play time, starting
+// when it's "fromDay" days old. (While playing, a day is secondsPerDay.)
+function playersInSeconds(game, fromDay, seconds) {
+  return game.peak * seconds * averageShare(game, fromDay, fromDay + seconds / CONFIG.secondsPerDay);
+}
+
+function playersPerSecondAt(game, days) {
+  return game.peak * salesShare(game, days);
 }
 
 function playersPerSecondNow(game) {
   return playersPerSecondAt(game, game.age);
 }
 
-// Sales stages: Hot, Steady, Fading, Old. Returns the stage now and
-// how many seconds until the next one (null if it's already Old).
+// Sales stages: Hot, Steady, Fading, Old, then Obsolete. Returns the
+// stage now and how many game days until the next one.
 function salesStage(game) {
-  const share = playersPerSecondNow(game) / game.peak;
+  if (game.age >= game.lifeDays) return { name: "Obsolete", next: null, daysToNext: null };
+  const share = salesShare(game, game.age);
   const stages = CONFIG.salesStages;
   let i = stages.findIndex(st => share >= st.above);
   if (i < 0) i = stages.length - 1;
   const next = stages[i + 1];
-  let secondsToNext = null;
+  let day;
   if (next) {
-    // The age when sales drop to the next stage's share of the peak.
-    const old = CONFIG.oldShare;
-    const fadingShare = (stages[i].above - old) / (1 - old);
-    const ageAtNext = game.fadeSeconds * (Math.pow(fadingShare, -1 / CONFIG.fadePower) - 1);
-    secondsToNext = Math.max(0, ageAtNext - game.age);
+    // Step forward until sales drop below this stage.
+    day = game.age;
+    while (day < game.lifeDays && salesShare(game, day) >= stages[i].above) day += 1;
+  } else {
+    day = game.lifeDays;
   }
-  return { name: stages[i].name, next: next ? next.name : null, secondsToNext: secondsToNext };
+  return { name: stages[i].name, next: next ? next.name : "Obsolete", daysToNext: Math.max(0, day - game.age) };
 }
 
 // ----- "What if" numbers for the Store ------------------------------
@@ -380,7 +423,7 @@ function usualGame(state) {
 function previewLaunch(state, game) {
   const n = launchNumbers(state, { genre: game.genre, price: game.price, size: game.size, features: game.features, bugs: false,
     sequelOf: game.sequelOf, sequelBonus: game.sequelBonus });
-  return { players: n.peak, fans: n.peak * n.fanRate, money: n.peak * n.moneyPerPlayer, stars: n.stars, fadeSeconds: n.fadeSeconds, fanRate: n.fanRate, moneyPerPlayer: n.moneyPerPlayer };
+  return { players: n.peak, fans: n.peak * n.fanRate, money: n.peak * n.moneyPerPlayer, stars: n.stars, fadeDays: n.fadeDays, lifeDays: n.lifeDays, fanRate: n.fanRate, moneyPerPlayer: n.moneyPerPlayer };
 }
 
 // How much a change (like training a skill) would help a game like this.
@@ -616,10 +659,10 @@ function acceptEvent(state, gameId) {
   // The game feels brand new again: a burst of new players.
   // Work out what that adds over the next game year, to tell you.
   const year = CONFIG.hitCheckDays * CONFIG.secondsPerDay;
-  const before = { rate: playersPerSecondNow(game), year: playersBetween(game, game.age, game.age + year) };
+  const before = { rate: playersPerSecondNow(game), year: playersInSeconds(game, game.age, year) };
   const oldAge = game.age;
   game.age = 0;
-  const after = { rate: playersPerSecondNow(game), year: playersBetween(game, 0, year) };
+  const after = { rate: playersPerSecondNow(game), year: playersInSeconds(game, 0, year) };
   const extra = Math.max(0, after.year - before.year);
   const result = {
     event: state.event.name, game: game.name,
@@ -656,12 +699,42 @@ function deleteReadMail(state) {
   state.mail = state.mail.filter(m => !m.read);
 }
 
-function giveTrophy(state, trophyId) {
+function giveTrophy(state, trophyId, gameName) {
   if (state.trophies[trophyId]) return;
   const t = byId(CONFIG.trophies, trophyId);
   state.trophies[trophyId] = true;
   state.money += t.reward;
-  addMail(state, "Trophy room", "Trophy won: " + t.name + "! Reward: $" + t.reward.toLocaleString());
+  addMail(state, "Trophy room", "Trophy won: " + t.name + (gameName ? " (" + gameName + ")" : "") + "! Reward: $" + t.reward.toLocaleString());
+}
+
+// Records and trophies for a single game: opening weekend, players,
+// money, stars and how long it keeps selling.
+function gameStat(g, stat) {
+  if (stat === "opening") return g.opening || 0;
+  if (stat === "players") return g.players || 0;
+  if (stat === "money") return g.money || 0;
+  if (stat === "stars") return g.stars || 0;
+  if (stat === "years") return g.age < g.lifeDays ? (g.age || 0) / 360 : 0;
+  return 0;
+}
+
+function checkGameTrophies(state, g) {
+  if (!state.records) state.records = {};
+  for (const stat of ["opening", "players", "money"]) {
+    const v = gameStat(g, stat);
+    const r = state.records[stat];
+    if (!r || v > r.value) state.records[stat] = { value: v, game: g.name };
+  }
+  for (const t of CONFIG.trophies) {
+    if (t.stat && !state.trophies[t.id] && gameStat(g, t.stat) >= t.goal) giveTrophy(state, t.id, g.name);
+  }
+}
+
+// Your best number so far for a game trophy, to show how close you are.
+function bestGameStat(state, stat) {
+  let best = 0;
+  for (const g of state.released) best = Math.max(best, gameStat(g, stat));
+  return best;
 }
 
 function checkFullOffice(state) {
@@ -703,6 +776,8 @@ function fanMailFor(state, project, numbers, repeats) {
 
 function tick(state, seconds, online) {
   const share = online ? 1 : CONFIG.awayShare;
+  // Games get older by game days: quickly while you play, slowly while away.
+  const days = seconds / (online ? CONFIG.secondsPerDay : CONFIG.awaySecondsPerDay);
   if (online) {
     state.playSeconds += seconds;
     passDays(state, seconds / CONFIG.secondsPerDay);
@@ -733,14 +808,19 @@ function tick(state, seconds, online) {
   // 3. Released games bring in players, fans and money.
   let newPlayers = 0, newFans = 0, newMoney = 0;
   for (const g of state.released) {
-    const players = playersBetween(g, g.age, g.age + seconds);
-    g.age += seconds;
+    if (g.age >= g.lifeDays) { g.age += days; continue; }   // obsolete: nobody buys it now
+    const players = g.peak * seconds * averageShare(g, g.age, g.age + days);
+    // Opening weekend: the players a game gets in its first 3 game days
+    // (only counted while you're playing, like a real launch).
+    if (online && g.age < CONFIG.openingDays) g.opening = (g.opening || 0) + players;
+    g.age += days;
     g.players += players * share;
     g.fans = (g.fans || 0) + players * g.fanRate * share;
     g.money = (g.money || 0) + players * g.moneyPerPlayer * share;
     newPlayers += players * share;
     newFans += players * g.fanRate * share;
     newMoney += players * g.moneyPerPlayer * share;
+    checkGameTrophies(state, g);
   }
   state.playersTotal += newPlayers;
   state.fans += newFans;
@@ -794,7 +874,7 @@ function releaseGame(state, p) {
   state.released.unshift({
     id: p.id, name: p.name, genre: p.genre, price: p.price, features: p.features, size: p.size || "small",
     bugs: p.bugs, peak: numbers.peak, fanRate: numbers.fanRate,
-    moneyPerPlayer: numbers.moneyPerPlayer, fadeSeconds: numbers.fadeSeconds,
+    moneyPerPlayer: numbers.moneyPerPlayer, fadeDays: numbers.fadeDays, lifeDays: numbers.lifeDays,
     age: 0, players: 0, fans: 0, money: 0, launchedAt: state.playSeconds, days: 0, launchDay: state.day || 0,
     stars: numbers.stars, sequelOf: p.sequelOf || null, sequelId: null,
   });
@@ -818,6 +898,7 @@ function releaseGame(state, p) {
 
   fanMailFor(state, p, numbers, repeats);
   giveTrophy(state, "first_game");
+  checkGameTrophies(state, state.released[0]);
   if (CONFIG.genres.every(g => state.genresTried[g.id])) giveTrophy(state, "all_genres");
 }
 

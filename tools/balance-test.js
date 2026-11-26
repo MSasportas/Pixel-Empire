@@ -72,7 +72,9 @@ function shop() {
 }
 
 let t = 0, minigames = 0, sequels = 0;
+const trophyAt = {};
 for (; t < STOP_HOURS * 3600; t += 1) {
+  for (const id in trophyAt) if (typeof trophyAt[id] === "object") trophyAt[id] = (t / 3600).toFixed(2) + " h";
   const free = t >= busyUntil;
   think -= 1;
   if (free && state.projects.length < G.maxProjects(state) && think <= 0) {
@@ -123,6 +125,7 @@ for (; t < STOP_HOURS * 3600; t += 1) {
       ", fans " + Math.round(state.fans).toLocaleString() + ", players " + Math.round(state.playersTotal).toLocaleString() + ", money $" + Math.round(state.money).toLocaleString() + ", hires " + state.hires.length);
     lastLevel = lv;
   }
+  for (const t of CONFIG.trophies) if (state.trophies[t.id] && !trophyAt[t.id]) trophyAt[t.id] = t;
   if (state.won) break;
 }
 console.log("Player: " + PLAYER);
@@ -132,6 +135,18 @@ console.log("Stopped at " + (t / 3600).toFixed(2) + " h with " + Math.round(stat
 console.log("Skills: " + Object.keys(state.skills).map(k => k + " " + state.skills[k].level).join(", "));
 const g0 = state.released[0];
 if (g0) console.log("Last game: " + g0.stars + " stars, launch " + Math.round(g0.peak).toLocaleString() + " players/s");
+
+console.log("Trophies: " + CONFIG.trophies.map(x => x.id + " " + (trophyAt[x.id] || "-")).join(", "));
+// The best game for each star rating: does quality matter?
+const byStars = {};
+for (const g of state.released) {
+  const k = g.stars;
+  if (!byStars[k] || g.players > byStars[k].players) byStars[k] = g;
+}
+for (const k of Object.keys(byStars).sort()) {
+  const g = byStars[k];
+  console.log("Best " + k + "-star game: " + Math.round(g.players).toLocaleString() + " players, opening weekend " + Math.round(g.opening || 0).toLocaleString() + ", " + g.size + (g.age >= g.lifeDays ? ", obsolete" : ""));
+}
 
 // Week away test: leave the game for 7 days and see what you come back to.
 const moneyBefore = state.money, fansBefore = state.fans;
