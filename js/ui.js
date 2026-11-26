@@ -384,7 +384,7 @@ const UI = {
   // You learn by doing it, and it goes away when you're done.
 
   guideSteps: [
-    { text: "Click <b>Make a game</b>, pick what kind of game you want (or keep the picks), and start it.",
+    { text: "Click <b>Make a game</b>, pick a genre, and start it.",
       done: s => s.projects.length > 0 || s.released.length > 0 },
     { text: "Click the <b>Concept</b> section with the yellow <b>!</b> and start the concept.",
       done: s => s.released.length > 0 || s.projects.some(p => p.step > 0 || p.worker) },
@@ -571,17 +571,6 @@ const UI = {
       size: "small",
       sequelOf: null,
     };
-    // Ready to go: pick good choices so one click starts the game.
-    // Price and size are the same as your last game. The genre is your
-    // best one that's different from last time (fans like something new).
-    const last = state.released[0] || state.projects[state.projects.length - 1];
-    if (last) {
-      if (isUnlocked(state, byId(CONFIG.prices, last.price))) this.form.price = last.price;
-      if (isUnlocked(state, byId(CONFIG.sizes, last.size || "small"))) this.form.size = last.size || "small";
-    }
-    const genres = CONFIG.genres.filter(g => isUnlocked(state, g) && g.id !== state.lastGenre);
-    genres.sort((a, b) => genreStars(state, b.id) * b.pop - genreStars(state, a.id) * a.pop);
-    if (genres.length) this.form.genre = genres[0].id;
     const original = sequelOf && state.released.find(g => g.id === sequelOf);
     if (original) {
       const sizes = CONFIG.sizes.filter(z => isUnlocked(state, z));
@@ -615,13 +604,6 @@ const UI = {
     }
     html += '<label>Game name</label><div class="row"><input id="game-name" maxlength="28" value="' + esc(f.name) + '">' +
       (original ? "" : '<button class="btn small ghost" data-act="form-random-name">Random</button>') + '</div>';
-    // Quick start: everything is already picked, so you can start right away.
-    if (f.genre && !full) {
-      const g = byId(CONFIG.genres, f.genre);
-      html += '<div class="quick-start"><button class="btn big" data-act="form-start">' + (original ? "Start the sequel!" : "Start making it!") + '</button>' +
-        '<span class="muted">' + g.name + " " + starsHtml(genreStars(state, f.genre)) + " · " + byId(CONFIG.sizes, f.size).label + " · " + byId(CONFIG.prices, f.price).label +
-        (f.features.length ? " · " + f.features.length + (f.features.length === 1 ? " feature" : " features") : "") + '<br>Or change anything below first.</span></div>';
-    }
 
     html += '<label>Genre <span class="muted label-note">Stars show how good your game would be, from your skills</span></label><div class="choices">';
     for (const g of CONFIG.genres) {
