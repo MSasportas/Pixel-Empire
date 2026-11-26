@@ -43,6 +43,27 @@ function bar(fraction, color) {
   const pct = Math.max(0, Math.min(100, fraction * 100));
   return '<div class="bar"><div class="bar-fill" style="width:' + pct + '%;' + (color ? "background:" + color : "") + '"></div></div>';
 }
+// A buy button that shows the price, and turns off when you can't afford it.
+function costButton(act, attrs, cost, label) {
+  const cant = state && state.money < cost;
+  return '<button class="btn' + (cant ? " cant" : "") + '" data-act="' + act + '" ' + attrs + (cant ? " disabled" : "") + ">" + (label ? label + " " : "") + money(cost) + "</button>";
+}
+function roundRect(g, x, y, w, h, r) {
+  g.beginPath();
+  g.moveTo(x + r, y); g.arcTo(x + w, y, x + w, y + h, r); g.arcTo(x + w, y + h, x, y + h, r);
+  g.arcTo(x, y + h, x, y, r); g.arcTo(x, y, x + w, y, r); g.closePath();
+}
+// What an upgrade changes, like "$10 → $15 a play".
+function upgradeEffect(m, u) {
+  const lvl = m.up[u.id], d = machineDef(m);
+  const now = u.values[lvl], next = u.values[lvl + 1];
+  let a, b;
+  if (u.id === "speed") { a = Math.round(d.play * now * 10) / 10 + "s"; b = next && Math.round(d.play * next * 10) / 10 + "s"; return '<span class="effect">Each play: ' + a + (next ? " → <b>" + b + "</b> (" + Math.round((now / next - 1) * 100) + "% more plays)" : "") + "</span>"; }
+  if (u.id === "bugs") { const avg = (CONFIG.bugMinutes[0] + CONFIG.bugMinutes[1]) / 2; a = "about every " + Math.round(avg * CONFIG.bugUpgrade[lvl]) + " min"; b = next && "every " + Math.round(avg * CONFIG.bugUpgrade[lvl + 1]) + " min"; return '<span class="effect">Bugs: ' + a + (next ? " → <b>" + b + "</b>" : "") + "</span>"; }
+  if (u.id === "price") { a = money(Math.round(d.price * now)); b = next && money(Math.round(d.price * next)); return '<span class="effect">Price: ' + a + (next ? " → <b>" + b + "</b> a play" : " a play") + "</span>"; }
+  if (u.id === "line") return '<span class="effect">Line: ' + now + " people" + (next ? " → <b>" + next + " people</b>" : "") + "</span>";
+  return "";
+}
 function playersText(d) { return d.players === 1 ? "1 player" : d.players + " players"; }
 function squaresText(d) { return d.w * d.h === 1 ? "1 square" : d.w * d.h + " squares"; }
 
@@ -59,6 +80,8 @@ const UI = {
   init() {
     this.canvas = $("arcade");
     this.ctx = this.canvas.getContext("2d");
+    this.labelCanvas = $("labels");
+    this.lctx = this.labelCanvas.getContext("2d");
     this.fit();
     window.addEventListener("resize", () => this.fit());
     Input.init(this.canvas, {
@@ -79,7 +102,15 @@ const UI = {
 
   // Makes the picture fill the window, with big crisp pixels.
   fit() {
-    this.scale = Math.max(2, Math.floor(Math.min(innerWidth / 260, innerHeight / 170)));
+    // Phones get bigger pixels: the camera follows you, so it's fine
+    // if the whole arcade doesn't fit on the screen at once.
+    const phone = Math.min(innerWidth, innerHeight) < 600;
+    this.scale = Math.max(phone ? 3 : 2, Math.floor(Math.min(innerWidth / 260, innerHeight / 170)));
+    this.dpr = window.devicePixelRatio || 1;
+    this.labelCanvas.width = Math.round(innerWidth * this.dpr);
+    this.labelCanvas.height = Math.round(innerHeight * this.dpr);
+    this.labelCanvas.style.width = innerWidth + "px";
+    this.labelCanvas.style.height = innerHeight + "px";
     this.view.w = Math.ceil(innerWidth / this.scale);
     this.view.h = Math.ceil(innerHeight / this.scale);
     this.canvas.width = this.view.w;
@@ -197,6 +228,12 @@ const UI = {
         this.toast("Building " + esc(placed.name) + "! Walk up to it to build it faster.");
       }
     }
+    if (name === "swap" && m) {
+      const placed = swapMachine(state, m, data.type);
+      if (placed) { Sound.play("buy"); this.unstickPlayer(); this.closePanel(); this.toast("Building " + esc(placed.name) + "!"); }
+    }
+    if (name === "shop") this.openShop();
+    if (name === "shop-unlock") { if (unlockNext(state)) { Sound.play("buy"); this.toast("You unlocked the " + CONFIG.machines[state.unlocked - 1].name + "! Walk to an empty square or swap a machine to place it."); this.openShop(); } }
     if (name === "upgrade" && m) { if (buyUpgrade(state, m, data.id)) { Sound.play("buy"); this.openMachine(m); } }
     if (name === "rename" && m) { renameMachine(m, $("machine-name").value); Sound.play("click"); this.openMachine(m); }
     if (name === "random-machine-name" && m) { $("machine-name").value = randomGameName(); }
@@ -240,7 +277,7 @@ const UI = {
 
   openPanel(title, body, color) {
     $("panel").innerHTML = '<div class="panel panel-main"' + (color ? ' style="border-color:' + color + '"' : "") + '>' +
-      '<div class="panel-head"><h2>' + title + '</h2><button class="btn ghost small" data-act="close">✕</button></div>' +
+      '<div class="panel-head"><h2>' + title + '</h2><span class="panel-money" id="panel-money">' + money(state ? state.money : 0) + '</span><button class="btn ghost small" data-act="close">✕</button></div>' +
       '<div class="panel-body">' + body + "</div></div>";
     $("panel").classList.remove("hidden");
     Input.cursor = { x: innerWidth / 2, y: innerHeight / 2 };
@@ -260,13 +297,13 @@ const UI = {
       const why = cantPlace(state, d.id, spot.room, spot.row, spot.col);
       html += '<div class="item' + (why ? " dim" : "") + '"><div class="mini-machine" style="--c:' + d.color + '"></div><div class="item-main"><b class="m-name">' + d.name + '</b><br>' +
         '<span class="muted">' + playersText(d) + " · " + squaresText(d) + " · " + money(d.price) + " a play · builds in " + fmtClock(d.build) + "</span></div>" +
-        (why ? '<span class="muted small-note">' + why + "</span>" : '<button class="btn" data-act="place" data-type="' + d.id + '">Place it</button>') + "</div>";
+        (why ? '<span class="muted small-note">' + why + "</span>" : costButton("place", 'data-type="' + d.id + '"', placeCost(d.id), "Place it")) + "</div>";
     }
     const next = CONFIG.machines[state.unlocked];
     if (next) {
       html += '<div class="item locked"><div class="mini-machine" style="--c:' + next.color + '"></div><div class="item-main"><b class="m-name">🔒 ' + next.name + '</b><br>' +
         '<span class="muted">' + playersText(next) + " · " + squaresText(next) + " · " + money(next.price) + " a play</span></div>" +
-        '<button class="btn' + (state.money < next.unlock ? " cant" : "") + '" data-act="unlock"' + (state.money < next.unlock ? " disabled" : "") + ">Unlock " + money(next.unlock) + "</button></div>";
+        costButton("unlock", "", next.unlock, "Unlock") + "</div>";
       const left = CONFIG.machines.length - state.unlocked - 1;
       if (left > 0) html += '<p class="muted center">' + left + " more machines to unlock after that</p>";
     }
@@ -294,11 +331,40 @@ const UI = {
     for (const u of CONFIG.upgrades) {
       const cost = upgradeCost(m, u.id), lvl = m.up[u.id];
       const dots = "●".repeat(lvl) + "○".repeat(u.cost.length - lvl);
-      html += '<div class="item"><div class="item-main"><b>' + u.name + '</b> <span class="dots">' + dots + '</span><br><span class="muted">' + u.about + "</span></div>" +
-        (cost === null ? '<span class="owned">MAX</span>' : '<button class="btn' + (state.money < cost ? " cant" : "") + '" data-act="upgrade" data-id="' + u.id + '"' + (state.money < cost ? " disabled" : "") + ">" + money(cost) + "</button>") + "</div>";
+      html += '<div class="item"><div class="item-main"><b>' + u.name + '</b> <span class="dots">' + dots + '</span><br><span class="muted">' + u.about + "</span><br>" + upgradeEffect(m, u) + "</div>" +
+        (cost === null ? '<span class="owned">MAX</span>' : costButton("upgrade", 'data-id="' + u.id + '"', cost, "")) + "</div>";
     }
+    // Swap it for a different machine (no empty square needed)
+    const swaps = [];
+    for (let i = 0; i < state.unlocked; i++) {
+      const sd = CONFIG.machines[i];
+      if (sd.id === m.type || cantPlace(state, sd.id, m.room, m.row, m.col, m)) continue;
+      swaps.push('<div class="item"><div class="mini-machine" style="--c:' + sd.color + '"></div><div class="item-main"><b class="m-name">' + sd.name + '</b><br><span class="muted">' + money(sd.price) + " a play · " + playersText(sd) + "</span></div>" +
+        costButton("swap", 'data-type="' + sd.id + '"', placeCost(sd.id), "Swap") + "</div>");
+    }
+    if (swaps.length) html += "<h3>Swap it for another machine</h3>" + swaps.reverse().join("");
     html += '<div class="row" style="margin-top:14px"><button class="btn ghost small" data-act="remove">Remove machine</button></div>';
     this.openPanel(esc(m.name), html, d.color);
+  },
+
+  // The shop: unlock machines and buy rooms from anywhere.
+  openShop() {
+    this.panelKind = "shop"; this.panelSpot = null; this.panelMachine = null;
+    let html = "<h3>Machines</h3>";
+    CONFIG.machines.forEach((d, i) => {
+      const info = '<span class="muted">' + playersText(d) + " · " + squaresText(d) + " · " + money(d.price) + " a play</span>";
+      let right;
+      if (i < state.unlocked) right = '<span class="owned">✓ Unlocked</span>';
+      else if (i === state.unlocked) right = costButton("shop-unlock", "", d.unlock, "Unlock");
+      else right = '<span class="muted small-note">🔒 ' + money(d.unlock) + "</span>";
+      html += '<div class="item' + (i > state.unlocked ? " dim" : "") + '"><div class="mini-machine" style="--c:' + d.color + '"></div><div class="item-main"><b class="m-name">' + d.name + "</b><br>" + info + "</div>" + right + "</div>";
+    });
+    html += '<p class="muted">Placing a machine costs a little extra. Walk to an empty square, or open a machine and swap it.</p>';
+    html += "<h3>Rooms</h3>";
+    const cost = nextRoomCost(state);
+    if (cost === null) html += "<p>Your arcade has every room!</p>";
+    else html += '<div class="item"><div class="item-main"><b class="m-name">Room ' + (state.rooms + 1) + '</b><br><span class="muted">Space for 16 more machines and ' + CONFIG.customersPerRoom + " more customers at once</span></div>" + costButton("buy-room", "", cost, "Buy") + "</div>";
+    this.openPanel("Shop", html);
   },
 
   openRoom() {
@@ -406,17 +472,25 @@ const UI = {
     Sound.start();
     const wx = cx / this.scale + this.view.x, wy = cy / this.scale + this.view.y;
     let goal = null;
+    // Generous tap areas: the machine, the part sticking up, and its line.
+    let bestD = 1e9;
     for (const it of this.interactables()) {
       const r = it.rect;
-      if (wx >= r.x - 1 && wx < r.x + r.w + 1 && wy >= r.y - 1 && wy < r.y + r.h + 1) { goal = it; break; }
+      const top = r.y - (it.kind === "machine" ? 10 : 2), bottom = r.y + r.h + (it.kind === "fuse" || it.kind === "room" ? 4 : 10);
+      if (wx >= r.x - 2 && wx < r.x + r.w + 2 && wy >= top && wy < bottom) {
+        const d = Math.hypot(wx - (r.x + r.w / 2), wy - (r.y + r.h / 2));
+        if (d < bestD) { bestD = d; goal = it; }
+      }
     }
-    const tile = goal ? goal.stand : { x: Math.floor(wx / T), y: Math.floor(wy / T) };
+    let tile = goal ? goal.stand : { x: Math.floor(wx / T), y: Math.floor(wy / T) };
+    if (!goal && !walkable(state, tile.x, tile.y)) tile = nearestWalkable(state, tile.x, tile.y);
+    if (!tile) return;
     const p = state.player;
     const path = findPath(state, Math.floor(p.x / T), Math.floor((p.y - 2) / T), tile.x, tile.y);
     if (!path) return;
     const points = path.slice(1).map(q => ({ x: (q.x + 0.5) * T, y: (q.y + 0.5) * T + 3 }));
     if (goal && goal.kind !== "spot" && !goal.point) points.push({ x: Math.max(goal.rect.x + 4, Math.min(goal.rect.x + goal.rect.w - 4, wx)), y: (goal.stand.y + 0.5) * T + 3 });
-    else if (!goal) points.push({ x: wx, y: wy });
+    else if (!goal && walkable(state, Math.floor(wx / T), Math.floor(wy / T))) points.push({ x: wx, y: wy });
     this.walkGoal = { points: points, target: goal };
     this.tapMark = { x: wx, y: wy, age: 0 };
   },
@@ -492,12 +566,86 @@ const UI = {
     const s = state || this.demo();
     const p = s.player;
     const worldW = MAP_W * T, worldH = MAP_H * T;
+    // Leave room for the boxes at the top and the button at the bottom,
+    // so they never hide machines.
+    const box = state ? document.querySelector(".hud-box.tl").getBoundingClientRect() : null;
+    const padTop = box ? (box.bottom + 6) / this.scale : 0, padBottom = state ? 60 / this.scale : 0;
+    const minY = -padTop, maxY = worldH + padBottom - this.view.h;
     let tx = p.x - this.view.w / 2, ty = p.y - 10 - this.view.h / 2;
     tx = this.view.w >= worldW ? (worldW - this.view.w) / 2 : Math.max(0, Math.min(worldW - this.view.w, tx));
-    ty = this.view.h >= worldH ? (worldH - this.view.h) / 2 : Math.max(0, Math.min(worldH - this.view.h, ty));
+    ty = maxY <= minY ? (minY + maxY) / 2 : Math.max(minY, Math.min(maxY, ty));
     if (this.snapCamera || !state) { this.view.x = tx; this.view.y = ty; this.snapCamera = false; }
     else { const k = Math.min(1, dt * 6); this.view.x += (tx - this.view.x) * k; this.view.y += (ty - this.view.y) * k; }
+    this.view.tapMark = this.tapMark;
+    if (this.tapMark) this.tapMark.age += dt;
     Art.draw(this.ctx, s, this.view, state ? this.target : null, this.time);
+    this.drawLabels();
+  },
+
+  // Clear text and icons, drawn at full screen sharpness on top of the
+  // pixel art (the "hybrid" look: pixel characters, easy-to-read labels).
+  drawLabels() {
+    const g = this.lctx, k = this.dpr, sc = this.scale;
+    g.setTransform(1, 0, 0, 1, 0, 0);
+    g.clearRect(0, 0, this.labelCanvas.width, this.labelCanvas.height);
+    g.setTransform(k, 0, 0, k, 0, 0);
+    g.textAlign = "center"; g.textBaseline = "middle";
+    const sx = x => (x - this.view.x) * sc, sy = y => (y - this.view.y) * sc;
+    const z = Math.max(0.8, sc / 4);          // labels grow a little with the zoom
+    const pill = (x, y, text, color, font) => {
+      g.font = font;
+      const w = g.measureText(text).width + 14 * z, h = 22 * z;
+      g.fillStyle = "rgba(11,6,24,0.88)";
+      roundRect(g, x - w / 2, y - h / 2, w, h, 6 * z); g.fill();
+      g.strokeStyle = color; g.lineWidth = 2; g.stroke();
+      g.fillStyle = "#ffffff"; g.fillText(text, x, y + 1);
+    };
+    const list = Art.labels.slice().sort((a, b) => (a.top ? 1 : 0) - (b.top ? 1 : 0));
+    for (const l of list) {
+      const x = sx(l.x), y = sy(l.y);
+      if (x < -100 || y < -60 || x > innerWidth + 100 || y > innerHeight + 60) continue;
+      if (l.kind === "bubble") {
+        const r = 13 * z;
+        g.fillStyle = "#ffffff";
+        g.beginPath(); g.arc(x, y - r, r, 0, Math.PI * 2); g.fill();
+        g.beginPath(); g.moveTo(x - 4 * z, y - 2 * z); g.lineTo(x + 4 * z, y - 2 * z); g.lineTo(x, y + 5 * z); g.fill();
+        g.font = Math.round(15 * z) + "px sans-serif";
+        g.fillText(l.text, x, y - r + 1);
+      } else if (l.kind === "float") {
+        g.globalAlpha = l.alpha;
+        g.font = "800 " + Math.round(15 * z) + "px Nunito, sans-serif";
+        g.lineWidth = 4; g.strokeStyle = "#0b0618"; g.strokeText(l.text, x, y);
+        g.fillStyle = "#ffd23f"; g.fillText(l.text, x, y);
+        g.globalAlpha = 1;
+      } else if (l.kind === "pill") {
+        pill(x, y, l.text, l.color, "800 " + Math.round(13 * z) + "px Nunito, sans-serif");
+      } else if (l.kind === "badge") {
+        // Gold stars = upgrades bought. Green arrow = you can buy one now.
+        let text = l.stars ? "★" + l.stars : "";
+        g.font = "900 " + Math.round(13 * z) + "px Nunito, sans-serif";
+        if (text) pill(x, y, text, "#ffd23f", g.font);
+        if (l.up) {
+          const ax = text ? x + (g.measureText(text).width / 2 + 18 * z) : x, r = 10 * z;
+          const bob = Math.sin(this.time * 5) * 2;
+          g.fillStyle = "#7cff6b"; g.beginPath(); g.arc(ax, y + bob, r, 0, Math.PI * 2); g.fill();
+          g.strokeStyle = "#0b0618"; g.lineWidth = 2; g.stroke();
+          g.fillStyle = "#0b0618"; g.fillText("⬆", ax, y + bob + 1);
+        }
+      } else if (l.kind === "sign") {
+        g.font = "900 " + Math.round(20 * z) + "px Nunito, sans-serif";
+        g.shadowColor = "#ff3ea5"; g.shadowBlur = 12;
+        g.fillStyle = "#ff8fcb"; g.fillText(l.text.toUpperCase(), x, y);
+        g.shadowBlur = 0;
+      } else if (l.kind === "sale") {
+        g.font = "900 " + Math.round(22 * z) + "px Nunito, sans-serif";
+        g.shadowColor = "#ffd23f"; g.shadowBlur = 10;
+        g.fillStyle = "#ffd23f"; g.fillText("ROOM FOR SALE", x, y - 14 * z); g.fillText(l.text, x, y + 14 * z);
+        g.shadowBlur = 0;
+      } else if (l.kind === "icon") {
+        g.font = Math.round((l.size || 14) * z) + "px sans-serif";
+        g.fillText(l.text, x, y);
+      }
+    }
   },
 
   // A pretend arcade behind the title screen.
@@ -506,7 +654,7 @@ const UI = {
       const s = newArcadeState("Pixel Empire Arcade");
       s.unlocked = 6;
       [["claw", 0, 0, 1], ["shooter", 0, 0, 3], ["pinball", 0, 0, 5], ["hockey", 0, 1, 1], ["whack", 0, 1, 4], ["punch", 0, 1, 6]].forEach(([t, r, row, col]) => {
-        const m = placeMachine(s, t, r, row, col); if (m) { m.status = "ok"; m.bugIn = 1e9; }
+        const m = placeMachine(s, t, r, row, col, true); if (m) { m.status = "ok"; m.bugIn = 1e9; }
       });
       s.outageIn = 1e9;
       s.player.x = 5.5 * T; s.player.y = 14 * T;
@@ -519,7 +667,25 @@ const UI = {
 
   updateHud() {
     $("hud-money").textContent = money(state.money);
+    $("hud-rate").textContent = "+" + money(state.rate * 60) + " a minute";
+    const full = state.customers.length >= capacity(state);
     $("hud-customers").textContent = state.customers.length + " / " + capacity(state);
+    $("hud-full").classList.toggle("hidden", !full || state.rooms >= 6);
+    // One-time hints (learning by playing: they pop up only when useful)
+    state.hints = state.hints || {};
+    if (full && state.rooms < 6 && !state.hints.full && state.playSeconds > 20) {
+      state.hints.full = true;
+      this.toast("Your arcade is full! Buy a new room so more customers can come in. Tap <b>Shop</b>.", 7000);
+    }
+    if (!state.hints.upgrade && state.machines.some(m => m.status !== "building" && CONFIG.upgrades.some(u => { const c = upgradeCost(m, u.id); return c !== null && state.money >= c; }))) {
+      state.hints.upgrade = true;
+      this.toast("You can upgrade a machine! Walk up to one with a green ⬆ arrow.", 7000);
+    }
+    if (!state.hints.unlock && state.unlocked < CONFIG.machines.length && state.unlocked > 0 && state.money >= CONFIG.machines[state.unlocked].unlock) {
+      state.hints.unlock = true;
+      this.toast("You can unlock the " + CONFIG.machines[state.unlocked].name + "! Tap <b>Shop</b>.", 7000);
+    }
+    $("btn-shop").classList.toggle("glow", (state.unlocked < CONFIG.machines.length && state.money >= CONFIG.machines[state.unlocked].unlock) || (full && nextRoomCost(state) !== null && state.money >= nextRoomCost(state)));
     $("hud-time").textContent = fmtDate(state.day);
     const pr = $("prompt");
     const t = this.target;
@@ -550,8 +716,9 @@ const UI = {
         this.openMachine(m);
       }
     }
+    if ($("panel-money") && state) $("panel-money").textContent = money(state.money);
     // Buttons that turn on once you have enough money
-    document.querySelectorAll("#panel [data-act=unlock], #panel [data-act=upgrade], #panel [data-act=buy-room]").forEach(b => {
+    document.querySelectorAll("#panel [data-act=unlock], #panel [data-act=upgrade], #panel [data-act=buy-room], #panel [data-act=place], #panel [data-act=swap], #panel [data-act=shop-unlock]").forEach(b => {
       const m = b.textContent.match(/\$([\d,]+)/);
       if (!m) return;
       const can = state.money >= +m[1].replace(/,/g, "");

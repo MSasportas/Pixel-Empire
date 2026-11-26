@@ -7,7 +7,8 @@
 // =====================================================================
 
 const CONFIG = {
-  startMoney: 500,             // just enough to unlock the claw machine
+  startMoney: 550,             // just enough to unlock the claw machine and place one
+  placeShare: 0.1,             // placing a machine costs this much of its unlock price
   autoSaveSeconds: 5,
 
   // ----- The calendar (same speed as the studio game) ---------------

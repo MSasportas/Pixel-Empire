@@ -279,7 +279,38 @@ function drawMachine(ctx, state, m, time) {
   }
   const on = !state.outage;
   MachineArt[d.id](ctx, r, d, on, m.status === "bug", time + r.x * 0.01);
+  // Upgraded machines get a gold strip along the bottom, one piece per upgrade
+  const lv = upgradeLevel(m);
+  if (lv > 0) {
+    px(ctx, r.x + 1, r.y + r.h - 2, r.w - 2, 2, NEON.dark);
+    const seg = (r.w - 2) / 8;
+    for (let i = 0; i < lv; i++) px(ctx, r.x + 1 + Math.floor(i * seg), r.y + r.h - 2, Math.max(1, Math.floor(seg) - (seg > 2 ? 1 : 0)), 2, NEON.yellow);
+  }
   if (m.status === "bug") drawBug(ctx, r.x + r.w / 2, r.y - 4, time + r.x);
+}
+
+function upgradeLevel(m) { return m.up.speed + m.up.bugs + m.up.price + m.up.line; }
+
+// Clear icons for the speech bubbles over customers.
+const MACHINE_ICONS = { claw: "🧸", shooter: "👾", pinball: "🎱", whack: "🔨", punch: "🥊", hockey: "🏒",
+  hoops: "🏀", fighter: "🥋", dance: "💃", skee: "🎳", racing: "🏎️", vr: "🥽" };
+function bubbleIcon(kind) {
+  if (kind === "heart") return "❤️";
+  if (kind === "full") return "⏳";
+  return MACHINE_ICONS[kind] || "🎮";
+}
+
+// The little signs over machines: bugs, building time, upgrades.
+function machineBadges(state, m, labels) {
+  const r = machineRect(m), x = r.x + r.w / 2, y = r.y - 8;
+  if (m.status === "building") {
+    labels.push({ kind: "pill", x: x, y: y, text: "🔨 " + Math.ceil(m.buildLeft) + "s", color: "#2ee6ff" });
+    return;
+  }
+  if (m.status === "bug") { labels.push({ kind: "pill", x: x, y: y, text: "🐞 Fix me!", color: "#ff5a6e", top: true }); return; }
+  const lv = upgradeLevel(m);
+  const canUpgrade = CONFIG.upgrades.some(u => { const c = upgradeCost(m, u.id); return c !== null && state.money >= c; });
+  if (lv > 0 || canUpgrade) labels.push({ kind: "badge", x: x, y: y, stars: lv, up: canUpgrade });
 }
 
 // Faint dashed square for an empty machine spot.
@@ -310,8 +341,11 @@ const Art = {
     }
   },
 
+  labels: [],    // clear text and icons, drawn sharp on top (see UI.drawLabels)
+
   draw(ctx, state, view, target, time) {
     const map = state.map;
+    this.labels = [];
     ctx.fillStyle = NEON.dark;
     ctx.fillRect(0, 0, view.w, view.h);
     ctx.save();
@@ -351,31 +385,17 @@ const Art = {
     // The next room you can buy: a "FOR SALE" sign and doors with a $ on them
     if (state.rooms < 6) {
       const next = state.rooms, o = roomOrigin(next);
-      ctx.font = "8px 'Press Start 2P', monospace";
-      ctx.textAlign = "center"; ctx.textBaseline = "middle";
-      ctx.save();
-      ctx.shadowColor = NEON.yellow; ctx.shadowBlur = 6 + Math.sin(time * 2) * 2;
-      ctx.fillStyle = NEON.yellow;
-      ctx.fillText("FOR SALE", (o.x + ROOM_W / 2) * T, (o.y + ROOM_H / 2) * T - 6);
-      ctx.fillText("$" + fmt(nextRoomCost(state)), (o.x + ROOM_W / 2) * T, (o.y + ROOM_H / 2) * T + 8);
-      ctx.restore();
+      this.labels.push({ kind: "sale", x: (o.x + ROOM_W / 2) * T, y: (o.y + ROOM_H / 2) * T, text: "$" + fmt(nextRoomCost(state)) });
       for (let j = 0; j < next; j++) if (roomsTouch(next, j)) for (const dd of doorsBetween(j, next)) {
         px(ctx, dd.x * T + 2, dd.y * T + 2, T - 4, T - 4, NEON.dark);
         px(ctx, dd.x * T + 3, dd.y * T + 3, T - 6, T - 6, "#5a3a1a");
-        ctx.fillStyle = NEON.yellow; ctx.font = "8px 'Press Start 2P', monospace";
-        ctx.fillText("$", dd.x * T + 8, dd.y * T + 9);
+        this.labels.push({ kind: "icon", x: dd.x * T + 8, y: dd.y * T + 8, text: "🔒", size: 11 });
       }
     }
 
     // Front door mat and the arcade's neon sign on the street
     DOOR_X.forEach(x => px(ctx, x * T + 1, (SIDEWALK_Y - 1) * T + 4, T - 2, T - 6, "#3d1840"));
-    ctx.save();
-    ctx.font = "8px 'Press Start 2P', monospace";
-    ctx.textAlign = "center"; ctx.textBaseline = "middle";
-    ctx.shadowColor = NEON.pink; ctx.shadowBlur = 6 + Math.sin(time * 2) * 2;
-    ctx.fillStyle = NEON.pink;
-    ctx.fillText(state.name.toUpperCase(), (DOOR_X[1]) * T, (SIDEWALK_Y + 1.6) * T);
-    ctx.restore();
+    this.labels.push({ kind: "sign", x: DOOR_X[1] * T, y: (SIDEWALK_Y + 1.6) * T, text: state.name });
 
     // The fuse box
     const fx = FUSE.x * T, fy = FUSE.y * T;
@@ -383,6 +403,7 @@ const Art = {
     px(ctx, fx + 3, fy + 2, 10, 11, NEON.dark);
     px(ctx, fx + 4, fy + 3, 8, 9, fuseAlarm ? "#ff3b3b" : "#55507a");
     drawBolt(ctx, fx + 6, fy + 4, state.outage ? time : 0);
+    if (state.outage) this.labels.push({ kind: "pill", x: fx + 8, y: fy - 4, text: "⚡ Fix the power!", color: "#ffd23f", top: true });
 
     // Empty machine spots
     for (let room = 0; room < state.rooms; room++) {
@@ -400,7 +421,7 @@ const Art = {
     for (const c of state.customers) things.push({ y: c.y, draw: () => {
       drawPerson(ctx, c.x, c.y, c.look, { walking: c.walking, phase: c.phase, seed: c.phase, back: c.mode === "line" || c.mode === "play" || (c.walking && c.dir === "up"), playing: c.mode === "play" && !state.outage, cheer: c.bubble === "heart" });
       const bubble = c.bubble || (!c.gotWish && (c.mode === "walk" || c.mode === "wander") && c.walking ? c.wish : null);
-      if (bubble) drawBubble(ctx, c.x, c.y - 22, bubble, time + c.phase);
+      if (bubble) this.labels.push({ kind: "bubble", x: c.x, y: c.y - 21 + Math.sin((time + c.phase) * 4), text: bubbleIcon(bubble) });
     } });
     const p = state.player;
     things.push({ y: p.y, draw: () => {
@@ -418,6 +439,7 @@ const Art = {
     } });
     things.sort((a, b) => a.y - b.y);
     things.forEach(t => t.draw());
+    for (const m of state.machines) machineBadges(state, m, this.labels);
 
     // The thing you're about to use glows
     if (target && target.rect && target.kind !== "spot") {
@@ -427,16 +449,16 @@ const Art = {
     }
 
     // "+$10" numbers
-    ctx.font = "10px VT323, monospace";
-    ctx.textAlign = "center"; ctx.textBaseline = "middle";
-    for (const f of this.floats) {
-      ctx.globalAlpha = Math.max(0, 1 - f.age / 1.2);
-      ctx.fillStyle = NEON.dark;
-      ctx.fillText("+$" + fmt(f.amount), Math.round(f.x) + 1, Math.round(f.y - f.age * 12) + 1);
-      ctx.fillStyle = NEON.yellow;
-      ctx.fillText("+$" + fmt(f.amount), Math.round(f.x), Math.round(f.y - f.age * 12));
+    for (const f of this.floats) this.labels.push({ kind: "float", x: f.x, y: f.y - f.age * 12, alpha: Math.max(0, 1 - f.age / 1.2), text: "+$" + fmt(f.amount) });
+
+    // Tap marker (phone): a ring where you tapped
+    if (view.tapMark && view.tapMark.age < 0.6) {
+      const k = view.tapMark.age / 0.6, rr = 3 + k * 6;
+      ctx.globalAlpha = 1 - k;
+      ctx.strokeStyle = NEON.yellow;
+      ctx.strokeRect(Math.round(view.tapMark.x - rr) + 0.5, Math.round(view.tapMark.y - rr / 2) + 0.5, Math.round(rr * 2), Math.round(rr));
+      ctx.globalAlpha = 1;
     }
-    ctx.globalAlpha = 1;
 
     // Power outage: everything goes dark except the fuse box
     if (state.outage) {

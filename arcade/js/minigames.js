@@ -134,6 +134,9 @@ const Minigames = {
       if (input.value === line) { game.hit(); if (!game.over) next(); }
     });
     next();
+    // Focus right away (while your tap is still happening), so the
+    // phone keyboard opens straight away.
+    input.focus();
     setTimeout(() => input.focus(), 50);
   },
 

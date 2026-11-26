@@ -13,7 +13,7 @@
 
 const Input = {
   keys: {},
-  device: "keyboard",     // "keyboard", "gamepad", "mouse" or "touch"
+  device: (typeof matchMedia === "function" && matchMedia("(pointer: coarse)").matches) ? "touch" : "keyboard",   // "keyboard", "gamepad", "mouse" or "touch"
   padWas: [],             // which controller buttons were down last time
   padMove: { x: 0, y: 0 },
   cursor: { x: 0, y: 0 },
