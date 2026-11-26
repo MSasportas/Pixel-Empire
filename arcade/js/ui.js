@@ -12,6 +12,17 @@ let slot = null;    // which save slot it lives in (0, 1 or 2)
 function $(id) { return document.getElementById(id); }
 function fmt(n) { return Math.floor(n).toLocaleString("en-US"); }
 function money(n) { return "$" + fmt(n); }
+// Short numbers: 950, 1.9k, 23.4k, 2.3M, 1.5B
+function shortNumber(n) {
+  n = Math.max(0, n);
+  if (n < 999.5) return String(Math.round(n));
+  const units = [[1e9, "B"], [1e6, "M"], [1e3, "k"]];
+  for (const [size, letter] of units) if (n >= size * 0.9995) {
+    const v = n / size;
+    return (v >= 100 ? Math.round(v) : Math.round(v * 10) / 10) + letter;
+  }
+  return String(Math.round(n));
+}
 function esc(text) {
   return String(text).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }
@@ -707,10 +718,9 @@ const UI = {
 
   updateHud() {
     $("hud-money").textContent = money(state.money);
-    $("hud-rate").textContent = "+" + money(state.rate * 60) + " a minute";
+    $("hud-rate").textContent = "+$" + shortNumber(state.rate * 60) + " a minute";
     const full = state.customers.length >= capacity(state);
     $("hud-customers").textContent = state.customers.length + " / " + capacity(state);
-    $("hud-full").classList.toggle("hidden", !full || state.rooms >= 6);
     // One-time hints (learning by playing: they pop up only when useful)
     state.hints = state.hints || {};
     if (full && state.rooms < 6 && !state.hints.full && state.playSeconds > 20) {
