@@ -183,6 +183,9 @@ input:focus, textarea:focus { outline: none; box-shadow: 0 0 10px var(--cyan); }
 .hud-box.bl { bottom: 8px; left: 8px; padding: 4px; }
 .hud-box.br { bottom: 8px; right: 8px; padding: 4px; }
 .hud-line b { font-family: var(--title-font); font-size: 12px; }
+/* The pixel fonts only come in one weight. Without this, phones fake a
+   bold version by smearing the letters, which makes them look blurry. */
+#hud b, #hud-top b { font-weight: normal; font-synthesis: none; }
 .hud-label { color: var(--muted); }
 .hud-rate { color: var(--muted); font-size: 16px; }
 .hud-date { color: var(--yellow); }
@@ -454,10 +457,13 @@ body.phone .hud-goal  { grid-area: goal; }
 body.phone .h-players { grid-area: players; }
 body.phone .h-date    { grid-area: date; justify-content: flex-end; }
 body.phone .h-money .hud-label, body.phone .h-date .hud-label { display: none; }  /* "$" and the date speak for themselves */
-body.phone .hud-line b { font-size: 10px; }
-body.phone .h-players b { font-size: 9px; }
-body.phone .hud-rate { font-size: 14px; }
-body.phone .h-level b { font-size: 8px; color: var(--cyan); }
+/* Big, sharp numbers: on phones they use the tall pixel font, which
+   stays crisp at any size (the blocky one gets fuzzy when it's small). */
+body.phone .hud-line b { font-family: var(--body-font); font-size: 28px; line-height: 0.9; }
+body.phone .h-money b { color: #ff5cb4; }
+body.phone .h-players b { font-size: 24px; }
+body.phone .hud-rate { font-size: 16px; color: #c4b8e6; }
+body.phone .h-level b { font-family: var(--title-font); font-size: 8px; line-height: 1.2; color: var(--cyan); }
 body.phone .h-levelrow .bar, body.phone .hud-goal .bar { flex: 1; margin-top: 0; min-width: 30px; }
 body.phone .hud-goal .hud-small { font-size: 14px; margin: 0; }
 body.phone .h-players, body.phone .h-date { font-size: 15px; }
