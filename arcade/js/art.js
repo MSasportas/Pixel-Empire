@@ -260,6 +260,30 @@ function drawBolt(ctx, x, y, time) {
   [[2, 0, 3], [1, 1, 3], [1, 2, 2], [0, 3, 5], [2, 4, 2], [2, 5, 2], [1, 6, 2], [1, 7, 1]].forEach(([dx, dy, w]) => ctx.fillRect(x + dx, y + dy, w, 1));
 }
 
+// Upright cabinets stand tall, so the people playing them cover only the
+// bottom half (like in a real arcade). Tables stay low.
+const TALL_MACHINES = { claw: 1, shooter: 1, pinball: 1, punch: 1, hoops: 1, fighter: 1 };
+const LIFT = 10;
+function machineLift(m) { return TALL_MACHINES[m.type] ? LIFT : 0; }
+// The machine's box as you see it (taller than the floor squares it covers).
+function machineArtRect(m) {
+  const r = machineRect(m), up = 6 + machineLift(m);
+  return { x: r.x, y: r.y - up, w: r.w, h: r.h + up };
+}
+// The lower half of a tall cabinet, with a coin slot.
+function drawCabinetBase(ctx, r, d) {
+  const cols = Math.max(1, Math.round(r.w / T));
+  for (let i = 0; i < cols; i++) {
+    const x = r.x + i * T + 1, y = r.y + 4, w = T - 2, h = r.h - 5;
+    px(ctx, x, y, w, h, NEON.dark);
+    px(ctx, x + 1, y, w - 2, h - 1, NEON.body);
+    px(ctx, x + 1, y, w - 2, 2, d.color);
+    px(ctx, x + 1, y + h - 3, w - 2, 2, NEON.bodyEdge);
+    px(ctx, x + 5, y + 4, 4, 4, NEON.dark);
+    px(ctx, x + 6, y + 5, 2, 2, NEON.yellow);
+  }
+}
+
 function drawMachine(ctx, state, m, time) {
   const r = machineRect(m), d = machineDef(m);
   ctx.fillStyle = "rgba(0,0,0,0.35)";
@@ -277,8 +301,11 @@ function drawMachine(ctx, state, m, time) {
     drawBolt(ctx, r.x + r.w - 7, r.y + 6, time);
     return;
   }
-  const on = !state.outage;
+  const on = !state.outage, lift = machineLift(m);
+  if (lift) { drawCabinetBase(ctx, r, d); ctx.save(); ctx.translate(0, -lift); }
   MachineArt[d.id](ctx, r, d, on, m.status === "bug", time + r.x * 0.01);
+  if (lift) ctx.restore();
+  const ar = machineArtRect(m);
   // Upgrades show on the machine itself: a silver base after the first
   // upgrade, a gold base and gold corners halfway, and a soft gold glow when
   // everything is bought. No signs floating over it.
@@ -288,28 +315,28 @@ function drawMachine(ctx, state, m, time) {
     px(ctx, r.x, r.y + r.h - 3, r.w, 3, shade);
     px(ctx, r.x + 1, r.y + r.h - 3, r.w - 2, 1, metal);
     if (tier >= 2) {
-      px(ctx, r.x, r.y, 2, 2, NEON.yellow); px(ctx, r.x + r.w - 2, r.y, 2, 2, NEON.yellow);
+      px(ctx, ar.x, ar.y, 2, 2, NEON.yellow); px(ctx, ar.x + ar.w - 2, ar.y, 2, 2, NEON.yellow);
     }
     if (tier === 3) {
       ctx.strokeStyle = "rgba(255,210,63," + (0.35 + Math.sin(time * 2 + r.x) * 0.2) + ")";
-      ctx.strokeRect(r.x - 1.5, r.y - 1.5, r.w + 3, r.h + 3);
+      ctx.strokeRect(ar.x - 1.5, ar.y - 1.5, ar.w + 3, ar.h + 3);
     }
   }
   // An upgrade you can afford: a little twinkle now and then, nothing more
   if (on && m.status === "ok" && canAffordUpgrade(state, m)) {
     const ph = (time * 0.6 + r.x * 0.013 + r.y * 0.007) % 1;
     if (ph < 0.22) {
-      const k = Math.sin(ph / 0.22 * Math.PI), sx = Math.round(r.x + r.w - 2), sy = Math.round(r.y + 2);
+      const k = Math.sin(ph / 0.22 * Math.PI), sx = Math.round(ar.x + ar.w - 2), sy = Math.round(ar.y + 2);
       ctx.globalAlpha = k;
       px(ctx, sx, sy - 2, 1, 5, "#ffffff"); px(ctx, sx - 2, sy, 5, 1, "#ffffff");
       if (k > 0.6) { px(ctx, sx - 1, sy - 1, 3, 3, "#ffffff"); px(ctx, sx, sy, 1, 1, NEON.yellow); }
       ctx.globalAlpha = 1;
     }
   }
-  if (m.status === "bug") drawBug(ctx, r.x + r.w / 2, r.y - 4, time + r.x);
+  if (m.status === "bug") drawBug(ctx, r.x + r.w / 2, ar.y + 2, time + r.x);
 }
 
-function upgradeLevel(m) { return m.up.speed + m.up.bugs + m.up.price + m.up.line; }
+function upgradeLevel(m) { return m.up.speed + m.up.price; }
 const MAX_UPGRADES = CONFIG.upgrades.reduce((n, u) => n + u.values.length - 1, 0);
 // 0 = none, 1 = silver (1-3 upgrades), 2 = gold (4 or more), 3 = all bought
 function upgradeTier(lv) { return lv >= MAX_UPGRADES ? 3 : lv >= 4 ? 2 : lv > 0 ? 1 : 0; }
@@ -326,7 +353,7 @@ function bubbleIcon(kind) {
 
 // The little signs over machines: bugs, building time, upgrades.
 function machineBadges(state, m, labels) {
-  const r = machineRect(m), x = r.x + r.w / 2, y = r.y - 8;
+  const r = machineArtRect(m), x = r.x + r.w / 2, y = r.y - 4;
   if (m.status === "building") {
     labels.push({ kind: "pill", x: x, y: y, text: "🔨 " + Math.ceil(m.buildLeft) + "s", color: "#2ee6ff" });
     return;
@@ -418,6 +445,18 @@ const Art = {
     DOOR_X.forEach(x => px(ctx, x * T + 1, (SIDEWALK_Y - 1) * T + 4, T - 2, T - 6, "#3d1840"));
     this.labels.push({ kind: "sign", x: DOOR_X[1] * T, y: (SIDEWALK_Y + 1.6) * T, text: state.name });
 
+    // Arcade full: people wait in line outside the door, under a FULL sign
+    const outside = [];
+    if (state.customers && state.customers.length >= capacity(state) && state !== (typeof UI !== "undefined" && UI.demoState)) {
+      if (!this.waitLooks) this.waitLooks = [0, 1, 2, 3, 4].map(() => randomLook());
+      const n = 2 + Math.min(3, Math.floor(state.customers.length / 25));
+      for (let i = 0; i < n; i++) {
+        const wx = DOOR_X[0] * T - 6 - i * 13, wy = (SIDEWALK_Y + 0.85) * T;
+        outside.push({ y: wy, draw: () => drawPerson(ctx, wx, wy, this.waitLooks[i], { phase: time + i, seed: i, walking: false }) });
+      }
+      this.labels.push({ kind: "pill", x: DOOR_X[0] * T - 6 - (n - 1) * 6.5, y: (SIDEWALK_Y - 0.6) * T, text: "FULL · " + capacity(state) + " max", color: "#ff3ea5" });
+    }
+
     // The fuse box
     const fx = FUSE.x * T, fy = FUSE.y * T;
     const fuseAlarm = state.outage && Math.floor(time * 3) % 2;
@@ -437,7 +476,7 @@ const Art = {
     }
 
     // Machines and people, drawn from back to front
-    const things = [];
+    const things = []; things.push(...outside);
     for (const m of state.machines) { const r = machineRect(m); things.push({ y: r.y + r.h - 1, draw: () => drawMachine(ctx, state, m, time) }); }
     for (const c of state.customers) things.push({ y: c.y, draw: () => {
       drawPerson(ctx, c.x, c.y, c.look, { walking: c.walking, phase: c.phase, seed: c.phase, back: c.mode === "line" || c.mode === "play" || (c.walking && c.dir === "up"), playing: c.mode === "play" && !state.outage, cheer: c.bubble === "heart" });
@@ -464,14 +503,14 @@ const Art = {
 
     // The thing you're about to use glows
     if (target && target.rect && target.kind !== "spot") {
-      const r = target.rect;
+      const r = target.kind === "machine" ? machineArtRect(target.m) : target.rect;
       ctx.strokeStyle = "rgba(46,230,255," + (0.6 + Math.sin(time * 6) * 0.3) + ")";
       ctx.strokeRect(r.x - 0.5, r.y - 0.5, r.w + 1, r.h + 1);
       // Only the machine you're next to shows its level
       const tm = target.kind === "machine" ? target.m : null;
       if (tm && tm.status === "ok") {
         const lv = upgradeLevel(tm), up = canAffordUpgrade(state, tm);
-        if (lv > 0 || up) this.labels.push({ kind: "pill", x: r.x + r.w / 2, y: r.y - 8, text: (lv >= MAX_UPGRADES ? "MAX" : "Lv " + (lv + 1)) + (up ? "  ⬆" : ""), color: up ? "#7cff6b" : "#ffd23f" });
+        if (lv > 0 || up) this.labels.push({ kind: "pill", x: r.x + r.w / 2, y: r.y - 6, text: (lv >= MAX_UPGRADES ? "MAX" : "Lv " + (lv + 1)) + (up ? "  ⬆" : ""), color: up ? "#7cff6b" : "#ffd23f" });
       }
     }
 

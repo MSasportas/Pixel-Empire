@@ -187,15 +187,21 @@ function machineStand(m) {
 function upgradeValue(m, id) { return byId(CONFIG.upgrades, id).values[m.up[id]]; }
 function playPrice(m) { return Math.round(machineDef(m).price * upgradeValue(m, "price")); }
 function playSeconds(m) { return machineDef(m).play * upgradeValue(m, "speed"); }
-function lineSlots(m) { return upgradeValue(m, "line"); }
+function lineSlots(m) { return CONFIG.lineSlots; }
 function upgradeCost(m, id) {
   const u = byId(CONFIG.upgrades, id), lvl = m.up[id];
   if (lvl >= u.cost.length) return null;            // all done
   return Math.max(50, niceNumber(machineDef(m).unlock * u.cost[lvl]));
 }
-function newBugTime(m) {
-  return randBetween(CONFIG.bugMinutes[0], CONFIG.bugMinutes[1]) * 60 * CONFIG.bugUpgrade[m.up.bugs];
+// Upgrades belong to a machine type, so every machine of that type shares them.
+function typeUpgrades(state, type) {
+  if (!state.typeUp) state.typeUp = {};
+  if (!state.typeUp[type]) state.typeUp[type] = { price: 0, speed: 0 };
+  return state.typeUp[type];
 }
+// A stand-in "machine" for a type, so the upgrade helpers work in the Shop.
+function typeStub(state, type) { return { type: type, up: typeUpgrades(state, type) }; }
+function newBugTime() { return randBetween(CONFIG.bugMinutes[0], CONFIG.bugMinutes[1]) * 60; }
 // Is it on and taking customers? (Bugged machines still work, at half speed.)
 function machineOpen(state, m) { return m.status !== "building"; }
 function machineRunning(state, m) { return m.status !== "building" && !state.outage; }
@@ -246,8 +252,8 @@ function placeMachine(state, type, room, row, col, free) {
   }
   const m = {
     id: makeId(), type: type, name: randomGameName(), room: room, row: row, col: col,
-    status: "building", buildLeft: d.build, up: { speed: 0, bugs: 0, price: 0, line: 0 },
-    bugIn: 0, plays: 0, earned: 0, queue: [], playing: [],
+    status: "building", buildLeft: d.build, up: typeUpgrades(state, type),
+    plays: 0, earned: 0, queue: [], playing: [],
   };
   state.machines.push(m);
   buildMap(state);
@@ -267,7 +273,16 @@ function buyUpgrade(state, m, id) {
   if (cost === null || state.money < cost) return false;
   state.money -= cost;
   m.up[id]++;
-  if (id === "bugs" && m.status === "ok") m.bugIn = Math.max(m.bugIn, newBugTime(m) * 0.5);
+  return true;
+}
+
+// The Bright sign (an upgrade for the whole arcade)
+function signCost(state) { const c = CONFIG.sign.cost[state.sign || 0]; return c === undefined ? null : c; }
+function buySign(state) {
+  const cost = signCost(state);
+  if (cost === null || state.money < cost) return false;
+  state.money -= cost;
+  state.sign = (state.sign || 0) + 1;
   return true;
 }
 
@@ -299,7 +314,7 @@ function speedUpBuild(state, m, score) {
 
 function fixBug(state, m) {
   m.status = "ok";
-  m.bugIn = newBugTime(m);
+  state.bugIn = newBugTime();
 }
 
 function fixOutage(state) {
@@ -318,7 +333,9 @@ function buyRoom(state) {
   buildMap(state);
   return true;
 }
-function capacity(state) { return CONFIG.customersPerRoom * state.rooms; }
+// How many people fit in the arcade: every working machine makes room for more.
+function seats(state) { return state.machines.filter(m => m.status !== "building").reduce((n, m) => n + machineDef(m).players, 0); }
+function capacity(state) { return CONFIG.baseCustomers + CONFIG.customersPerSeat * seats(state) + CONFIG.sign.extra[state.sign || 0]; }
 
 // =====================================================================
 //  A NEW ARCADE
@@ -338,6 +355,9 @@ function newArcadeState(name, look) {
     rate: 0,                  // money per second lately (for away earnings)
     outage: false,
     outageIn: randBetween(CONFIG.outageMinutes[0], CONFIG.outageMinutes[1]) * 60,
+    bugIn: newBugTime(),
+    typeUp: {},
+    sign: 0,
     totalEarned: 0,
     playSeconds: 0,
     savedAt: Date.now(),
@@ -354,7 +374,20 @@ function prepareState(state) {
   state.rateBucket = 0;
   state.rateTimer = 0;
   state.player = state.player || { x: 5.5 * T, y: 16.5 * T, dir: "up", walking: false, phase: 0 };
-  for (const m of state.machines) { m.queue = []; m.playing = []; }
+  // Older saves kept upgrades on each machine: give each type the best one it had.
+  if (!state.typeUp) {
+    state.typeUp = {};
+    for (const m of state.machines) if (m.up) {
+      const t = typeUpgrades(state, m.type);
+      t.price = Math.max(t.price, m.up.price || 0); t.speed = Math.max(t.speed, m.up.speed || 0);
+    }
+  }
+  if (state.bugIn === undefined) state.bugIn = newBugTime();
+  state.sign = state.sign || 0;
+  // Only one bug at a time
+  let bugged = false;
+  for (const m of state.machines) { if (m.status === "bug") { if (bugged) m.status = "ok"; bugged = true; } }
+  for (const m of state.machines) { m.queue = []; m.playing = []; m.up = typeUpgrades(state, m.type); delete m.bugIn; }
   buildMap(state);
 }
 
@@ -514,16 +547,11 @@ function updateMachine(state, m, dt) {
     m.buildLeft -= dt;
     if (m.buildLeft <= 0) {
       m.status = "ok";
-      m.bugIn = newBugTime(m);
       state.events.push({ type: "built", machine: m });
     }
     return;
   }
   if (state.outage) return;
-  if (m.status === "ok") {
-    m.bugIn -= dt;
-    if (m.bugIn <= 0) { m.status = "bug"; state.events.push({ type: "bug", machine: m }); }
-  }
   const d = machineDef(m);
   // Bugged machines run at half speed.
   const speed = m.status === "bug" ? 0.5 : 1;
@@ -572,6 +600,19 @@ function tick(state, dt) {
   state.playSeconds += dt;
   for (const m of state.machines) updateMachine(state, m, dt);
 
+  // Bugs: one machine at a time, every few minutes
+  if (!state.outage && !state.machines.some(m => m.status === "bug")) {
+    const ok = state.machines.filter(m => m.status === "ok");
+    if (ok.length) {
+      state.bugIn -= dt;
+      if (state.bugIn <= 0) {
+        const m = pickRandom(ok);
+        m.status = "bug"; state.events.push({ type: "bug", machine: m });
+        state.bugIn = newBugTime();
+      }
+    }
+  }
+
   // Power outage (rare)
   if (!state.outage && state.machines.some(m => m.status !== "building")) {
     state.outageIn -= dt;
@@ -593,7 +634,9 @@ function tick(state, dt) {
   state.customers = state.customers.filter(c => !c.gone);
 
   // Money per second lately (a slow average, used while you're away)
-  state.rateTimer += dt;
+  // (frozen during a power outage, so closing the game then doesn't ruin time away)
+  if (state.outage) { state.rateBucket = 0; state.rateTimer = 0; }
+  else state.rateTimer += dt;
   if (state.rateTimer >= 5) {
     const now = state.rateBucket / state.rateTimer;
     state.rate = state.rate ? state.rate * 0.8 + now * 0.2 : now;
@@ -610,28 +653,16 @@ function catchUp(state) {
   // Machines being built finish.
   for (const m of state.machines) if (m.status === "building") {
     m.buildLeft -= seconds;
-    if (m.buildLeft <= 0) { m.status = "ok"; m.bugIn = newBugTime(m) + m.buildLeft; m.buildLeft = 0; report.built++; }
+    if (m.buildLeft <= 0) { m.status = "ok"; m.buildLeft = 0; report.built++; }
   }
-  // Earnings, in 100 small pieces of time. Bugged machines and a power
-  // outage both halve the money (so a week away never earns zero).
-  const pieces = 100, piece = seconds / pieces;
-  const baseRate = state.rate * CONFIG.awayShare;
-  let outageAt = state.outage ? 0 : state.outageIn;
+  // Steady earnings the whole time you're away (no bugs or outages slow it down).
+  report.money = Math.floor(state.rate * CONFIG.awayShare * seconds);
   const built = state.machines.filter(m => m.status !== "building");
-  for (let i = 0; i < pieces; i++) {
-    const t = (i + 0.5) * piece;
-    let share = 1;
-    if (built.length) {
-      const bugged = built.filter(m => m.status === "bug" || m.bugIn < t).length;
-      share = 1 - 0.5 * bugged / built.length;
-    }
-    if (t > outageAt) share *= 0.5;
-    report.money += baseRate * piece * share;
-  }
-  report.money = Math.floor(report.money);
-  for (const m of built) {
-    if (m.status === "ok") { m.bugIn -= seconds; if (m.bugIn <= 0) { m.status = "bug"; report.bugs++; } }
-  }
+  // At most one bug waits for you.
+  if (!state.machines.some(m => m.status === "bug") && built.length && seconds > state.bugIn) {
+    const ok = built.filter(m => m.status === "ok");
+    if (ok.length) { pickRandom(ok).status = "bug"; report.bugs = 1; state.bugIn = newBugTime(); }
+  } else if (built.length) state.bugIn = Math.max(1, state.bugIn - seconds);
   if (!state.outage && built.length) {
     state.outageIn -= seconds;
     if (state.outageIn <= 0) { state.outage = true; report.outage = true; }
@@ -650,11 +681,11 @@ const SAVE_KEY = "pixelEmpireArcade.slot.";
 
 function saveData(state) {
   const keep = {};
-  for (const k of ["v", "name", "look", "money", "rooms", "unlocked", "day", "rep", "rate", "outage", "outageIn", "totalEarned", "playSeconds", "hints"]) keep[k] = state[k];
+  for (const k of ["v", "name", "look", "money", "rooms", "unlocked", "day", "rep", "rate", "outage", "outageIn", "bugIn", "typeUp", "sign", "totalEarned", "playSeconds", "hints"]) keep[k] = state[k];
   keep.savedAt = Date.now();
   keep.machines = state.machines.map(m => ({
     id: m.id, type: m.type, name: m.name, room: m.room, row: m.row, col: m.col,
-    status: m.status, buildLeft: m.buildLeft, up: m.up, bugIn: m.bugIn, plays: m.plays, earned: m.earned,
+    status: m.status, buildLeft: m.buildLeft, plays: m.plays, earned: m.earned,
   }));
   keep.player = { x: state.player.x, y: state.player.y, dir: state.player.dir };
   return keep;
@@ -676,5 +707,5 @@ function deleteSave(slot) { try { localStorage.removeItem(SAVE_KEY + slot); } ca
 
 if (typeof module !== "undefined") module.exports = {
   newArcadeState, tick, catchUp, placeMachine, placeCost, swapMachine, unlockNext, buyUpgrade, buyRoom, nextRoomCost, cantPlace,
-  machineDef, upgradeCost, fixBug, fixOutage, speedUpBuild, capacity, SLOTS_PER_ROW,
+  machineDef, upgradeCost, typeStub, typeUpgrades, signCost, buySign, fixBug, fixOutage, speedUpBuild, capacity, SLOTS_PER_ROW,
 };
