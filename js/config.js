@@ -29,7 +29,7 @@ const CONFIG = {
     { id: "preprod",    name: "Pre-production", share: 0.15, verb: "Start pre-production", job: "Game Designer",  minigame: "code",   color: "#ff7a3d" },
     { id: "production", name: "Production",     share: 0.60, verb: "Start production",     job: "Programmer",     minigame: "blocks", color: "#2ee6ff" },
     { id: "testing",    name: "Testing",        share: 0.15, verb: "Start testing",        job: "QA Tester",      minigame: "bugs",   color: "#7cff6b" },
-    { id: "launch",     name: "Launch",         share: 0.05, verb: "Launch it!",           job: "Producer",       minigame: null,     color: "#ff3ea5" },
+    { id: "launch",     name: "Launch",         share: 0.05, verb: "Launch it!",           job: "Producer",       minigame: "hype",     color: "#ff3ea5" },
   ],
 
   // Game sizes. Bigger games take longer to make ("time" times longer),

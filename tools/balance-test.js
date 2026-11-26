@@ -32,7 +32,7 @@ const GOOD = PLAYER === "good";
 const CLICK_DELAY = GOOD ? 10 : 30;  // seconds before clicking a waiting step
 const THINK = GOOD ? 20 : 45;        // seconds to set up a new game
 const SHOP_EVERY = GOOD ? 60 : 180;  // how often they go shopping
-const MG_SECONDS = { ideas: 30, code: 30, blocks: 20, bugs: 30 };
+const MG_SECONDS = { ideas: 30, code: 30, blocks: 20, bugs: 30, hype: 15 };
 const MG_SCORE = 0.8;                // average mini-game score (a few mistakes)
 
 const state = G.newGameState("Robot Studio", 0, null);
