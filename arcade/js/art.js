@@ -279,17 +279,41 @@ function drawMachine(ctx, state, m, time) {
   }
   const on = !state.outage;
   MachineArt[d.id](ctx, r, d, on, m.status === "bug", time + r.x * 0.01);
-  // Upgraded machines get a gold strip along the bottom, one piece per upgrade
-  const lv = upgradeLevel(m);
-  if (lv > 0) {
-    px(ctx, r.x + 1, r.y + r.h - 2, r.w - 2, 2, NEON.dark);
-    const seg = (r.w - 2) / 8;
-    for (let i = 0; i < lv; i++) px(ctx, r.x + 1 + Math.floor(i * seg), r.y + r.h - 2, Math.max(1, Math.floor(seg) - (seg > 2 ? 1 : 0)), 2, NEON.yellow);
+  // Upgrades show on the machine itself: a silver base after the first
+  // upgrade, a gold base and gold corners halfway, and a soft gold glow when
+  // everything is bought. No signs floating over it.
+  const lv = upgradeLevel(m), tier = upgradeTier(lv);
+  if (tier > 0) {
+    const metal = tier === 1 ? "#c9d2e3" : NEON.yellow, shade = tier === 1 ? "#7d879c" : "#b8860b";
+    px(ctx, r.x, r.y + r.h - 3, r.w, 3, shade);
+    px(ctx, r.x + 1, r.y + r.h - 3, r.w - 2, 1, metal);
+    if (tier >= 2) {
+      px(ctx, r.x, r.y, 2, 2, NEON.yellow); px(ctx, r.x + r.w - 2, r.y, 2, 2, NEON.yellow);
+    }
+    if (tier === 3) {
+      ctx.strokeStyle = "rgba(255,210,63," + (0.35 + Math.sin(time * 2 + r.x) * 0.2) + ")";
+      ctx.strokeRect(r.x - 1.5, r.y - 1.5, r.w + 3, r.h + 3);
+    }
+  }
+  // An upgrade you can afford: a little twinkle now and then, nothing more
+  if (on && m.status === "ok" && canAffordUpgrade(state, m)) {
+    const ph = (time * 0.6 + r.x * 0.013 + r.y * 0.007) % 1;
+    if (ph < 0.22) {
+      const k = Math.sin(ph / 0.22 * Math.PI), sx = Math.round(r.x + r.w - 2), sy = Math.round(r.y + 2);
+      ctx.globalAlpha = k;
+      px(ctx, sx, sy - 2, 1, 5, "#ffffff"); px(ctx, sx - 2, sy, 5, 1, "#ffffff");
+      if (k > 0.6) { px(ctx, sx - 1, sy - 1, 3, 3, "#ffffff"); px(ctx, sx, sy, 1, 1, NEON.yellow); }
+      ctx.globalAlpha = 1;
+    }
   }
   if (m.status === "bug") drawBug(ctx, r.x + r.w / 2, r.y - 4, time + r.x);
 }
 
 function upgradeLevel(m) { return m.up.speed + m.up.bugs + m.up.price + m.up.line; }
+const MAX_UPGRADES = CONFIG.upgrades.reduce((n, u) => n + u.values.length - 1, 0);
+// 0 = none, 1 = silver (1-3 upgrades), 2 = gold (4 or more), 3 = all bought
+function upgradeTier(lv) { return lv >= MAX_UPGRADES ? 3 : lv >= 4 ? 2 : lv > 0 ? 1 : 0; }
+function canAffordUpgrade(state, m) { return CONFIG.upgrades.some(u => { const c = upgradeCost(m, u.id); return c !== null && state.money >= c; }); }
 
 // Clear icons for the speech bubbles over customers.
 const MACHINE_ICONS = { claw: "🧸", shooter: "👾", pinball: "🎱", whack: "🔨", punch: "🥊", hockey: "🏒",
@@ -308,9 +332,6 @@ function machineBadges(state, m, labels) {
     return;
   }
   if (m.status === "bug") { labels.push({ kind: "pill", x: x, y: y, text: "🐞 Fix me!", color: "#ff5a6e", top: true }); return; }
-  const lv = upgradeLevel(m);
-  const canUpgrade = CONFIG.upgrades.some(u => { const c = upgradeCost(m, u.id); return c !== null && state.money >= c; });
-  if (lv > 0 || canUpgrade) labels.push({ kind: "badge", x: x, y: y, stars: lv, up: canUpgrade });
 }
 
 // Faint dashed square for an empty machine spot.
@@ -446,6 +467,12 @@ const Art = {
       const r = target.rect;
       ctx.strokeStyle = "rgba(46,230,255," + (0.6 + Math.sin(time * 6) * 0.3) + ")";
       ctx.strokeRect(r.x - 0.5, r.y - 0.5, r.w + 1, r.h + 1);
+      // Only the machine you're next to shows its level
+      const tm = target.kind === "machine" ? target.m : null;
+      if (tm && tm.status === "ok") {
+        const lv = upgradeLevel(tm), up = canAffordUpgrade(state, tm);
+        if (lv > 0 || up) this.labels.push({ kind: "pill", x: r.x + r.w / 2, y: r.y - 8, text: (lv >= MAX_UPGRADES ? "MAX" : "Lv " + (lv + 1)) + (up ? "  ⬆" : ""), color: up ? "#7cff6b" : "#ffd23f" });
+      }
     }
 
     // "+$10" numbers

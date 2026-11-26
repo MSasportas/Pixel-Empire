@@ -46,9 +46,9 @@ body.phone input, body.phone textarea { -webkit-user-select: text; user-select: 
 .btn-icon { margin-right: 4px; }
 
 /* ----- Little celebrations ----- */
-#hud-money { display: inline-block; }
+#hud-money { display: inline-block; transform-origin: left center; }
 #hud-money.bump { animation: money-bump 0.35s cubic-bezier(.3, 1.8, .5, 1); }
-@keyframes money-bump { 0% { transform: scale(1); } 40% { transform: scale(1.25); color: #fff; } 100% { transform: scale(1); } }
+@keyframes money-bump { 0% { transform: scale(1); } 40% { transform: scale(1.12); color: #fff; } 100% { transform: scale(1); } }
 .item.flash { animation: row-flash 0.7s ease-out; }
 @keyframes row-flash {
   0% { background: rgba(124, 255, 107, 0.45); box-shadow: 0 0 18px #7cff6b; }
