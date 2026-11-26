@@ -637,3 +637,14 @@ body.phone .title-box, body.phone .create-box { margin: auto; }
   html, body { font-size: 18px; }
   .create-box { width: 100vw; max-height: 100%; height: 100%; }
 }
+
+/* Launch mini-game: the hype meter */
+.mg-theme.good { color: #7cff6b; }
+.mg-theme.bad { color: var(--pink); }
+.mg-meter { position: relative; height: 56px; margin: 10px 24px 0; background: #1a1230; border: 2px solid #3a2c5c; }
+.mg-zone { position: absolute; top: 0; bottom: 0; background: rgba(255, 62, 165, 0.35); border: 2px solid var(--pink); box-shadow: 0 0 12px var(--pink); }
+.mg-zone.in { background: rgba(255, 62, 165, 0.7); }
+.mg-marker { position: absolute; top: -8px; bottom: -8px; width: 6px; margin-left: -3px; background: var(--yellow); box-shadow: 0 0 10px var(--yellow); }
+.mg-hype-bar { height: 14px; margin: 34px 24px 4px; background: #1a1230; border: 2px solid #3a2c5c; }
+#mg-hype-fill { height: 100%; width: 0; background: linear-gradient(90deg, var(--cyan), var(--pink)); transition: width 0.2s; }
+.mg-hype-label { text-align: center; font-family: var(--title-font); font-size: 10px; }

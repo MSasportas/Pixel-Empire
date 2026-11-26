@@ -21,6 +21,8 @@ const Minigames = {
               how: "Click the block with the same code as the one at the top." },
     bugs:   { title: "Squash the bugs!",       jobs: 0,  seconds: 30, mistake: 0.1,
               how: "Tap every bug before it reaches the bottom. They come faster and faster!" },
+    hype:   { title: "Build the hype!",        jobs: 6,  seconds: 25, mistake: 0.2,
+              how: "Tap (or press Space) when the marker is inside the glowing zone. Every hit makes it faster!" },
   },
 
   // Bigger games have bigger mini-games.
@@ -288,6 +290,70 @@ const Minigames = {
       });
     };
     round();
+  },
+
+  // ----- Launch: Build the hype -----------------------------------
+  // A marker slides back and forth along the hype meter. Tap when it's
+  // inside the glowing zone to post your next bit of marketing. Each hit
+  // makes the marker faster and the zone smaller. Tapping outside the
+  // zone is a mistake.
+  hypeThings: ["Trailer posted!", "Streamers are playing it!", "Posters up!", "News story!", "Fans are sharing it!",
+    "Demo is out!", "Ads everywhere!", "Big review!", "Countdown started!", "Everyone's talking!", "Gameplay video!", "Pre-orders open!"],
+
+  setup_hype(game) {
+    game.arena.innerHTML =
+      '<div class="mg-theme" id="mg-say">Tap in the zone!</div>' +
+      '<div class="mg-meter" id="mg-meter"><div class="mg-zone" id="mg-zone"></div><div class="mg-marker" id="mg-marker"></div></div>' +
+      '<div class="mg-hype-bar"><div id="mg-hype-fill"></div></div><div class="muted mg-hype-label">HYPE</div>';
+    const say = document.getElementById("mg-say");
+    const zoneEl = document.getElementById("mg-zone");
+    const marker = document.getElementById("mg-marker");
+    const fill = document.getElementById("mg-hype-fill");
+    const things = this.shuffle(this.hypeThings);
+    let pos = 0, dir = 1, speed = 0.55;           // speed: meter widths per second
+    let zone = { at: 0.6, width: 0.24 };
+    let wait = 0;                                  // a short pause after each tap
+    const placeZone = () => {
+      // Somewhere new, not right where the marker is now.
+      let at;
+      do { at = Math.random() * (1 - zone.width); } while (Math.abs(at + zone.width / 2 - pos) < 0.3);
+      zone.at = at;
+      zoneEl.style.left = (zone.at * 100) + "%";
+      zoneEl.style.width = (zone.width * 100) + "%";
+    };
+    placeZone();
+    const tap = () => {
+      if (game.over || wait > 0) return;
+      wait = 0.25;
+      if (pos >= zone.at && pos <= zone.at + zone.width) {
+        say.textContent = things[game.done % things.length];
+        say.className = "mg-theme good";
+        speed *= 1.15;
+        zone.width = Math.max(0.12, zone.width * 0.9);
+        game.hit();
+        fill.style.width = Math.min(100, game.done / game.total * 100) + "%";
+        if (!game.over) placeZone();
+      } else {
+        say.textContent = pos < zone.at ? "Too early!" : "Too late!";
+        say.className = "mg-theme bad";
+        game.miss();
+      }
+    };
+    game.arena.addEventListener("pointerdown", tap);
+    const key = e => {
+      if (game.over) { window.removeEventListener("keydown", key); return; }
+      if (e.code === "Space" || e.key === "Enter") { e.preventDefault(); tap(); }
+    };
+    window.addEventListener("keydown", key);
+    game.update = dt => {
+      if (game.over) { window.removeEventListener("keydown", key); return; }
+      wait -= dt;
+      pos += dir * speed * dt;
+      if (pos > 1) { pos = 2 - pos; dir = -1; }
+      if (pos < 0) { pos = -pos; dir = 1; }
+      marker.style.left = (pos * 100) + "%";
+      zoneEl.classList.toggle("in", pos >= zone.at && pos <= zone.at + zone.width);
+    };
   },
 
   // ----- Testing: Squash the bugs ----------------------------------
