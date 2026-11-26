@@ -7,16 +7,27 @@
 // =====================================================================
 
 // The office is drawn at this small size, then scaled up to fit.
-const WORLD_W = 480;
+// On wide screens the sections get wider, so the office fills the
+// screen (see Office.fit). They're never narrower than 96 pixels.
+const BASE_SECTION_W = 96;
+const MAX_SECTION_W = 150;
+let SECTION_W = BASE_SECTION_W;
+let WORLD_W = SECTION_W * 5;
 const WORLD_H = 270;
-const SECTION_W = WORLD_W / 5;  // each of the 5 sections is 96 pixels wide
 const WALL_H = 26;
 
 // On tall phone screens the office is shown as two floors (see Office.show).
-const FOLD_W = SECTION_W * 3;                 // top floor: 3 sections wide
-const FOLD_GAP = 6;                           // dark gap between the floors
+// (These use the narrow 96-pixel sections.)
+const FOLD_W = BASE_SECTION_W * 3;                      // top floor: 3 sections wide
+const FOLD_GAP = 6;                                     // dark gap between the floors
 const FOLD_H = WORLD_H * 2 + FOLD_GAP;
-const FOLD_X2 = (FOLD_W - SECTION_W * 2) / 2; // bottom floor sits in the middle
+const FOLD_X2 = (FOLD_W - BASE_SECTION_W * 2) / 2;      // bottom floor sits in the middle
+
+// Where a desk goes in a wider section: it keeps its place, spread out
+// to match. (x and w are for a 96-pixel section.)
+function spreadX(x, w) {
+  return Math.round((x + w / 2) * SECTION_W / BASE_SECTION_W - w / 2);
+}
 
 // Neon colors for the "night shift" look.
 const NEON = {
@@ -217,6 +228,21 @@ const Office = {
 
   // Folded = two floors (for tall screens). Not folded = one long room.
   // The top floor has 3 sections, the bottom floor has 2 in the middle.
+  // Changes how wide each section is, and moves everyone to match.
+  setSectionWidth(w) {
+    if (w === SECTION_W) return;
+    const k = w / SECTION_W;
+    SECTION_W = w;
+    WORLD_W = w * 5;
+    this.world.width = WORLD_W;
+    this.ctx.imageSmoothingEnabled = false;
+    for (const id in this.people) {
+      const p = this.people[id];
+      p.x *= k; p.target.x *= k;
+    }
+    this.setFolded(this.folded);
+  },
+
   setFolded(folded) {
     this.folded = folded;
     this.canvas.width = folded ? FOLD_W : WORLD_W;
@@ -295,11 +321,15 @@ const Office = {
     const roomW = W - 8 - parseFloat(pad.paddingLeft) - parseFloat(pad.paddingRight);
     const roomH = bottom - top - parseFloat(pad.paddingTop) - parseFloat(pad.paddingBottom);
     // One long room, or two floors? Pick whichever is bigger on screen.
-    const longScale = Math.min(roomW / WORLD_W, roomH / WORLD_H);
+    const longScale = Math.min(roomW / (BASE_SECTION_W * 5), roomH / WORLD_H);
     const foldScale = Math.min(roomW / FOLD_W, roomH / FOLD_H);
     const fold = foldScale > longScale * 1.2;
+    // One long room: make the sections wider to fill a wide screen.
+    let sw = BASE_SECTION_W;
+    if (!fold) sw = Math.max(BASE_SECTION_W, Math.min(MAX_SECTION_W, Math.floor(roomW / roomH * WORLD_H / 5)));
+    this.setSectionWidth(sw);
     if (fold !== this.folded) this.setFolded(fold);
-    const s = fold ? foldScale : longScale;
+    const s = fold ? foldScale : Math.min(roomW / WORLD_W, roomH / WORLD_H);
     this.canvas.style.width = Math.floor(this.canvas.width * s) + "px";
     this.canvas.style.height = Math.floor(this.canvas.height * s) + "px";
   },
@@ -310,12 +340,12 @@ const Office = {
 
   // Where someone stands to work at the big station of a section.
   stationSpot(stepId) {
-    return { x: this.sectionX(stepId) + STATION.x + STATION.w / 2, y: STATION.y + 6 };
+    return { x: this.sectionX(stepId) + spreadX(STATION.x, STATION.w) + STATION.w / 2, y: STATION.y + 6 };
   },
 
   deskSpot(stepId, index) {
     const d = DESK_SPOTS[index];
-    return { x: this.sectionX(stepId) + d.x + DESK_W / 2, y: d.y + 6 };
+    return { x: this.sectionX(stepId) + spreadX(d.x, DESK_W) + DESK_W / 2, y: d.y + 6 };
   },
 
   randomSpotIn(stepId) {
@@ -446,15 +476,15 @@ const Office = {
     CONFIG.steps.forEach(step => {
       const x0 = this.sectionX(step.id);
       const busy = state.projects.some(p => CONFIG.steps[p.step].id === step.id && p.worker === "you");
-      drawList.push({ y: STATION.y + 1, fn: () => drawDesk(ctx, x0 + STATION.x, STATION.y, STATION.w, STATION.h, busy, t) });
+      drawList.push({ y: STATION.y + 1, fn: () => drawDesk(ctx, x0 + spreadX(STATION.x, STATION.w), STATION.y, STATION.w, STATION.h, busy, t) });
       for (let d = 0; d < allowed; d++) {
         const spot = DESK_SPOTS[d];
         if (d < state.desks[step.id]) {
           const hire = hiresIn(state, step.id)[d];
           const on = hire && hireIsBusy(state, hire.id);
-          drawList.push({ y: spot.y + 1, fn: () => drawDesk(ctx, x0 + spot.x, spot.y, DESK_W, DESK_H, on, t + d) });
+          drawList.push({ y: spot.y + 1, fn: () => drawDesk(ctx, x0 + spreadX(spot.x, DESK_W), spot.y, DESK_W, DESK_H, on, t + d) });
         } else {
-          drawList.push({ y: spot.y - 100, fn: () => drawEmptyDeskSpot(ctx, x0 + spot.x, spot.y) });
+          drawList.push({ y: spot.y - 100, fn: () => drawEmptyDeskSpot(ctx, x0 + spreadX(spot.x, DESK_W), spot.y) });
         }
       }
     });

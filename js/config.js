@@ -168,13 +168,20 @@ const CONFIG = {
   sequelMaxBonus: 1.5,       // a giant hit: up to +150%
   // Skipping testing: this share of fans compared to a tested game.
   bugFanPenalty: 0.5,
-  // Sales fade: players per second =
-  //   peak * (oldShare + (1 - oldShare) / (1 + age / fadeSeconds) ^ fadePower)
-  // A bigger fadeSeconds means games keep selling for longer.
-  // Old games never stop: they keep "oldShare" of their launch sales.
-  fadeSeconds: 2000,
+  // Sales fade, counted in GAME DAYS (the calendar):
+  //   players per second = peak / (1 + days / fadeDays) ^ fadePower
+  // A bigger fadeDays means games keep selling for longer.
+  // Games don't sell forever: after "lifeDays" a game is OBSOLETE and
+  // nobody buys it any more. Sales start to wind down at "windDown"
+  // (0.6 = 60%) of its life.
+  // Better games (more stars) are talked about for longer: "starLife"
+  // stretches the fade and the life, from 1 star to 5 stars.
+  // Bigger games, and the Updates feature, also last longer (see "fade").
+  fadeDays: 150,
   fadePower: 1.2,
-  oldShare: 0.02,
+  lifeDays: 1080,          // 3 game years for a 3-star small game
+  windDown: 0.6,
+  starLife: [0.5, 0.75, 1, 1.3, 1.6],
   // Names for how well a game is selling compared to launch day.
   // "above" is the share of launch-day sales.
   salesStages: [
@@ -183,12 +190,13 @@ const CONFIG = {
     { name: "Fading", above: 0.12 },
     { name: "Old",    above: 0 },
   ],
+  // ... and when its life is over, it's "Obsolete".
 
   // ----- Desks, hires and office supplies ---------------------------
   deskBaseCost: 100000,
   deskCostGrowth: 2.5,    // each extra desk in the same section costs more
-  hireBaseCost: 150000,
-  hireCostGrowth: 2.3,   // each hire costs more than the last
+  hireBaseCost: 50000,
+  hireCostGrowth: 1.3,   // each hire costs 30% more than the last
 
   // Each upgrade level makes everyone work faster by "speed" (0.1 = 10%).
   supplies: [
@@ -204,8 +212,8 @@ const CONFIG = {
   // ----- The calendar -----------------------------------------------
   // The game starts on January 1, Year 1. While you play, one game day
   // passes every "secondsPerDay" real seconds.
-  // 12 seconds = 1 day, so 1 hour of play is 300 days (10 months).
-  secondsPerDay: 12,
+  // 3 seconds = 1 day, so 1 hour of play is 1,200 days (about 3 years).
+  secondsPerDay: 3,
   // While you're away, the calendar moves slower: one game day for every
   // "awaySecondsPerDay" real seconds (3600 = 1 hour), so a week away is
   // about half a year in the game instead of 27 years.
@@ -213,7 +221,7 @@ const CONFIG = {
 
   // ----- Away from the game -----------------------------------------
   maxAwaySeconds: 7 * 24 * 3600,   // earnings count for up to 7 days
-  awayShare: 0.12,                 // while away, games earn 12% as much
+  awayShare: 0.005,                // while away, games sell at 1/200 the speed (but they also age much slower)
   welcomeBackAfterSeconds: 3600,   // show the bonus after 1 hour away
   welcomeBackMinBonus: 25000,
 
@@ -239,7 +247,25 @@ const CONFIG = {
     { id: "full_office",  name: "Full office",            reward: 50000000 },
     { id: "fans_5m",      name: "5,000,000 fans",         reward: 60000000,  fans: 5000000 },
     { id: "fans_20m",     name: "20,000,000 fans",        reward: 200000000, fans: 20000000 },
+    { id: "first_hit",    name: "First hit game",         reward: 500000 },
+    // Game milestones: one single game reaching a goal. "stat" is what
+    // counts: opening (opening weekend players), players, money, stars,
+    // or years (still selling after that many game years).
+    { id: "open_1k",      name: "Opening weekend: 1,000 players",     reward: 50000,     stat: "opening", goal: 1000 },
+    { id: "open_10k",     name: "Opening weekend: 10,000 players",    reward: 500000,    stat: "opening", goal: 10000 },
+    { id: "open_100k",    name: "Opening weekend: 100,000 players",   reward: 5000000,   stat: "opening", goal: 100000 },
+    { id: "game_100k",    name: "One game: 100,000 players",          reward: 250000,    stat: "players", goal: 100000 },
+    { id: "game_1m",      name: "One game: 1,000,000 players",        reward: 2500000,   stat: "players", goal: 1000000 },
+    { id: "game_10m",     name: "One game: 10,000,000 players",       reward: 25000000,  stat: "players", goal: 10000000 },
+    { id: "money_1m",     name: "One game earns $1,000,000",          reward: 500000,    stat: "money",   goal: 1000000 },
+    { id: "money_10m",    name: "One game earns $10,000,000",         reward: 5000000,   stat: "money",   goal: 10000000 },
+    { id: "stars_3",      name: "A 3-star game",                      reward: 300000,    stat: "stars",   goal: 3 },
+    { id: "stars_5",      name: "A 5-star game",                      reward: 20000000,  stat: "stars",   goal: 5 },
+    { id: "years_3",      name: "Still selling after 3 years",        reward: 2000000,   stat: "years",   goal: 3 },
+    { id: "years_5",      name: "Still selling after 5 years",        reward: 25000000,  stat: "years",   goal: 5 },
   ],
+  // Opening weekend = a game's first 3 game days.
+  openingDays: 3,
 
   // ----- Starting over ----------------------------------------------
   // Each new studio you found after winning works this much faster.

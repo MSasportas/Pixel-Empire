@@ -227,6 +227,7 @@ input:focus, textarea:focus { outline: none; box-shadow: 0 0 10px var(--cyan); }
 .stage-steady { background: var(--cyan); color: var(--bg); }
 .stage-fading { background: var(--yellow); color: var(--bg); }
 .stage-old { background: #3a2c5c; color: var(--muted); }
+.stage-obsolete { background: #1a1230; color: var(--muted); border: 1px solid #3a2c5c; }
 
 /* Mail: new mail glows, old mail is faded */
 .mail { display: flex; align-items: flex-start; gap: 8px; }
